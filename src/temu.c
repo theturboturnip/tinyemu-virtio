@@ -36,7 +36,8 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
-#include <linux/if_tun.h>
+#include <net/if_tun.h>
+#include <net/if_tap.h>
 #endif
 #include <sys/stat.h>
 #include <signal.h>
@@ -428,9 +429,9 @@ EthernetDevice *tun_open(const char *ifname)
         return NULL;
     }
     memset(&ifr, 0, sizeof(ifr));
-    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+    //ifr.ifr_flags = IFF_TAP | IFF_NO_PI; ### To build for FreeBSD
     pstrcpy(ifr.ifr_name, sizeof(ifr.ifr_name), ifname);
-    ret = ioctl(fd, TUNSETIFF, (void *) &ifr);
+    ret = 0;//ioctl(fd, TUNSETIFF, (void *) &ifr); ### To build for FreeBSD
     if (ret != 0) {
         fprintf(stderr, "Error: could not configure /dev/net/tun\n");
         close(fd);

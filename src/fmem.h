@@ -54,7 +54,7 @@ uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
     int error;
     // Sanitise to a 32-bit access, as something in the chain
     // only supports 32-bit currently.
-    uint32_t adr_mask = ((-1)<<2);
+    uint32_t adr_mask = ((0xFFFFFFFF)<<2);
     req.offset = offset & adr_mask;
     req.access_width = 4;
 
