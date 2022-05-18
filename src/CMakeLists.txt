@@ -86,19 +86,9 @@ set(TINYEMU_SOURCES
   pckbd.c
   ps2.c
   ps2.h
-  riscv_cpu.c
-  riscv_cpu.h
-  riscv_cpu_fp_template.h
-  riscv_cpu_priv.h
-  riscv_cpu_template.h
-  riscv_machine.c
   sha256.c
   sha256.h
   simplefb.c
-  softfp.c
-  softfp.h
-  softfp_template.h
-  softfp_template_icvt.h
   temu.c
   vga.c
   virtio.c
