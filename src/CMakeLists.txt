@@ -66,6 +66,8 @@ set(TINYEMU_SOURCES
   cutils.c
   cutils.h
   fbuf.h
+  fpga.cpp
+  fpga.h
   fs.c
   fs.h
   fs_disk.c
@@ -79,8 +81,11 @@ set(TINYEMU_SOURCES
   json.c
   json.h
   list.h
+  loadelf.cpp
+  loadelf.h
   machine.c
   machine.h
+  main.cpp
   pci.c
   pci.h
   pckbd.c
@@ -90,9 +95,13 @@ set(TINYEMU_SOURCES
   sha256.h
   simplefb.c
   temu.c
+  util.cpp
+  util.h
   vga.c
   virtio.c
   virtio.h
+  virtiodevices.cpp
+  virtiodevices.h
   vmmouse.c
   ${FS_NET_SOURCES}
   ${SDL_SOURCES}
