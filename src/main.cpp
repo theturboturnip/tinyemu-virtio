@@ -37,14 +37,11 @@ const struct option long_options[] = {
     { "dtb",     required_argument, 0, 'd' },
     { "elf",     required_argument, 0, 'e' },
     { "entry",   required_argument, 0, 'E' },
-    { "gdb-port", required_argument, 0, 'G' },
     { "help",    no_argument, 0, 'h' },
     { "htif-console",  optional_argument, 0, 'H' },
 #if DEBUG_LOOP
     { "sleep-seconds", required_argument, 0, 's' },
 #endif
-    { "start-halted", no_argument, 0, 'S' },
-    { "tv",      no_argument,       0, 'T' },
     { "tun",      required_argument,       0, 't' },
     { "uart",          optional_argument, 0, 'U' },
     { "uart-console",  optional_argument, 0, 'U' },
@@ -69,7 +66,7 @@ void usage(const char *name)
     }
 }
 
-AWSP2 *fpga;
+FPGA *fpga;
 
 int main(int argc, char * const *argv)
 {
@@ -91,8 +88,6 @@ int main(int argc, char * const *argv)
     int xdma_enabled = DEFAULT_XDMA_ENABLED;
     std::vector<std::string> block_files;
     int debug_log = 0;
-    int start_halted = 0;
-    int gdb_port = -1;
 
     while (1) {
         int option_index = optind ? optind : 1;
@@ -132,19 +127,9 @@ int main(int argc, char * const *argv)
         case 'E':
             entry = strtoul(optarg, 0, 0);
             break;
-        case 'G':
-            gdb_port = strtoul(optarg, 0, 0);
-            break;
         case 'h':
             usage(argv[0]);
             return 2;
-        case 'H':
-            if (optarg) {
-                htif_enabled = strtoul(optarg, 0, 0);
-            } else {
-                htif_enabled = 1;
-            }
-            break;
         case 'M':
             usemem = 1;
             break;
@@ -153,12 +138,6 @@ int main(int argc, char * const *argv)
             sleep_seconds = strtoul(optarg, 0, 0);
             break;
 #endif
-        case 'S':
-            start_halted = 1;
-            break;
-        case 'T':
-            tv = 1;
-            break;
         case 't':
             tun_iface = optarg;
             break;
@@ -208,7 +187,7 @@ int main(int argc, char * const *argv)
     debugLog("romBuffer=%lx\r\n", (long)romBuffer);
 
     Rom rom = { BOOTROM_BASE, BOOTROM_LIMIT, (uint64_t *)romBuffer };
-    fpga = new AWSP2(IfcNames_AWSP2_ResponseH2S, rom, tun_iface);
+    fpga = new FPGA(IfcNames_FPGA_ResponseH2S, rom, tun_iface);
 #ifdef SIMULATION
     fpga->map_simulated_dram();
 #else
@@ -217,7 +196,6 @@ int main(int argc, char * const *argv)
     if (xdma_enabled)
         fpga->open_xdma();
 #endif
-    fpga->set_htif_enabled(htif_enabled);
     fpga->set_uart_enabled(uart_enabled);
 
     for (std::string block_file: block_files) {
@@ -241,88 +219,21 @@ int main(int argc, char * const *argv)
         copyFile((char *)romBuffer + DEVICETREE_OFFSET, dtb_filename, rom_alloc_sz - 0x10);
     }
 
-    // Unblock memory accesses in the SoC.
-    // This has to be done before attempting to read/write memory through DM System Bus
-    // or deadlock will ensue.
-    fpga->memory_ready();
-
-    debugLog("asserting haltreq\r\n");
-    fpga->halt();
-    fpga->capture_tv_info(0);
-
-    debugLog("dmi state machine status %d\r\n", fpga->dmi_status());
-
-boot:
-    bool first_elf = true;
-    uint32_t chosen_entry = entry;
-    for (std::string elf_file: elf_files) {
-        uint64_t elf_entry = loadElf(fpga, elf_file.c_str(), 0x40000000, first_elf);
-        if (first_elf) {
-            first_elf = false;
-            debugLog("elf_entry=%08lx\r\n", elf_entry);
-
-            if (!chosen_entry)
-                chosen_entry = elf_entry;
-        }
-    }
-
-    // update the dpc
-    debugLog("setting pc val %08x\r\n", chosen_entry);
-    fpga->write_csr(0x7b1, chosen_entry);
-    debugLog("reading pc val %08lx\r\n", fpga->read_csr(0x7b1));
-
-    // for loading linux, set pointer to devicetree
-    fpga->write_gpr(10, 0);
-    fpga->write_gpr(11, BOOTROM_BASE + DEVICETREE_OFFSET);
-
-    fpga->capture_tv_info(tv);
-
-    // and resume
+    // Start up vitio device emulation
     fpga->start_io();
-    if (!start_halted)
-      fpga->resume();
-    // This has to come after resume since it will take the DMI lock on behalf
-    // of gdbstub and never give it up.
     if (gdb_port >= 0)
       fpga->start_gdb(gdb_port);
 
-#if DEBUG_LOOP
-    while (1) {
-        fpga->halt();
-        uint64_t dpc = fpga->read_csr(0x7b1);
-        uint64_t ra = fpga->read_gpr(1);
-        uint64_t stvec = fpga->read_csr(0x105);
-        fprintf(stderr, "pc %08lx ra %08lx stvec %08lx irq %08x\r\n", dpc, ra, stvec, fpga->read_irq_status());
-        if (0 && !tv && dpc >= 0x8200210a) {
-            tv = 1;
-            fpga->capture_tv_info(tv);
-        }
-        if (dpc == 0x1000 || dpc == 0x80003168) {
-            for (int i = 0; i < 32; i++) {
-                fprintf(stderr, "reg %d val %08lx\r\n", i, fpga->read_gpr(i));
-            }
-
-            fprintf(stderr, "mepc   %08lx\r\n", fpga->read_csr(0x341));
-            fprintf(stderr, "mcause %08lx\r\n", fpga->read_csr(0x342));
-            fprintf(stderr, "mtval  %08lx\r\n", fpga->read_csr(0x343));
-
-            break;
-        }
-        fpga->resume();
-
-        sleep(sleep_seconds);
-    }
-#endif
-
     int exit_code = fpga->join_io();
     if (exit_code == EXIT_CODE_RESET) {
-        // Halt to quiesce the pipeline before resetting so there are no
-        // outstanding AXI requests.
-        fpga->halt();
-        fpga->reset_halt();
         fpga->get_virtio_devices().reset();
         goto boot;
     }
-
+    
+    while (1) {
+        if (fpga.response.emulated_mmio_has_request())
+            fpga.response.emulated_mmio_respond()
+        else usleep(1000); // Wait in hope of a new request.
+    }
     return exit_code;
 }
