@@ -19,10 +19,10 @@ extern "C" {
 
 static int debug = 0;
 
-extern AWSP2 *fpga;
+extern FPGA *fpga;
 
 
-void awsp2_set_irq(void *opaque, int irq_num, int level)
+void fpga_set_irq(void *opaque, int irq_num, int level)
 {
     if (debug) fprintf(stderr, "%s: irq_num=%d level=%d\r\n", __FUNCTION__, irq_num, level);
     if (level)
@@ -80,7 +80,7 @@ VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
     virtio_bus->addr = 0x40000000;
 
     for (int i = 0; i < 32; i++)
-        irq_init(&irq[i], awsp2_set_irq, (void *)22, i);
+        irq_init(&irq[i], fpga_set_irq, (void *)22, i);
 
     // set up a network device
     virtio_bus->irq = &irq[irq_num++];

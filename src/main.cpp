@@ -2,7 +2,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <semaphore.h>
 #include <string>
 #include <sys/types.h>
@@ -187,14 +189,14 @@ int main(int argc, char * const *argv)
     debugLog("romBuffer=%lx\r\n", (long)romBuffer);
 
     Rom rom = { BOOTROM_BASE, BOOTROM_LIMIT, (uint64_t *)romBuffer };
-    fpga = new FPGA(IfcNames_FPGA_ResponseH2S, rom, tun_iface);
+    fpga = new FPGA(1, rom, tun_iface); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
 #ifdef SIMULATION
     fpga->map_simulated_dram();
 #else
-    if (dma_enabled)
+    if (dma_enabled) // XXX which of these are we using??
         fpga->map_pcis_dma();
     if (xdma_enabled)
-        fpga->open_xdma();
+        fpga->open_dma();
 #endif
     fpga->set_uart_enabled(uart_enabled);
 
@@ -221,18 +223,15 @@ int main(int argc, char * const *argv)
 
     // Start up vitio device emulation
     fpga->start_io();
-    if (gdb_port >= 0)
-      fpga->start_gdb(gdb_port);
 
     int exit_code = fpga->join_io();
     if (exit_code == EXIT_CODE_RESET) {
         fpga->get_virtio_devices().reset();
-        goto boot;
     }
     
     while (1) {
-        if (fpga.response.emulated_mmio_has_request())
-            fpga.response.emulated_mmio_respond()
+        if (fpga->emulated_mmio_has_request())
+            fpga->emulated_mmio_respond();
         else usleep(1000); // Wait in hope of a new request.
     }
     return exit_code;

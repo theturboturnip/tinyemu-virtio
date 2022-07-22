@@ -102,10 +102,9 @@ public:
 
     void write(uint32_t addr, uint8_t *data, size_t num_bytes);
 
-    //void irq_set_levels(uint32_t w1s);
-    //void irq_clear_levels(uint32_t w1s);
-    //int read_irq_status ();
-
+    void irq_set_levels(uint32_t w1s);
+    void irq_clear_levels(uint32_t w1c);
+    int read_irq_status ();
     void set_dram_buffer(uint8_t *buf);
 
     void enqueue_stdin(char *buf, size_t num_chars);
@@ -121,6 +120,9 @@ public:
     void set_fromhost_addr(uint64_t addr);
     void set_htif_enabled(bool enabled);
     void set_uart_enabled(bool enabled);
+    
+    bool emulated_mmio_has_request();
+    void emulated_mmio_respond();
 
  private:
     void process_stdin();

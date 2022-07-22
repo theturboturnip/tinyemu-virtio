@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -17,7 +18,7 @@ int debug_pcis_write = 0;
 __attribute__((aligned(4096)))
 static uint8_t zeroes[4096];
 
-uint64_t loadElf(AWSP2 *fpga, const char *elf_filename, size_t max_mem_size, bool set_htif)
+uint64_t loadElf(FPGA *fpga, const char *elf_filename, size_t max_mem_size, bool set_htif)
 {
     // Verify the elf library version
     if (elf_version(EV_CURRENT) == EV_NONE) {

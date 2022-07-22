@@ -290,30 +290,33 @@ void FPGA::write(uint32_t addr, uint8_t *data, size_t size) {
         memcpy(ram_ptr, data, size);
     }
 }
-/*
+
+/* XXX Implement IRQs somehow.  Just stubbed out for now. */
+
 void FPGA::irq_set_levels(uint32_t w1s)
 {
-    std::lock_guard<std::mutex> lock(misc_request_mutex);
+    //std::lock_guard<std::mutex> lock(misc_request_mutex);
 
-    request->irq_set_levels(w1s);
+    //request->irq_set_levels(w1s);
 }
 
 void FPGA::irq_clear_levels(uint32_t w1c)
 {
-    std::lock_guard<std::mutex> lock(misc_request_mutex);
+    //std::lock_guard<std::mutex> lock(misc_request_mutex);
 
-    request->irq_clear_levels(w1c);
+    //request->irq_clear_levels(w1c);
 }
 
 int FPGA::read_irq_status ()
 {
-    std::lock_guard<std::mutex> lock(misc_request_mutex);
+    //std::lock_guard<std::mutex> lock(misc_request_mutex);
 
-    request->read_irq_status();
-    wait_misc_response();
-    return misc_rsp_data;
+    //request->read_irq_status();
+    //wait_misc_response();
+    //return misc_rsp_data;
 }
-*/
+/* ----------- XXX IRQs XXX ----------------*/
+
 
 void FPGA::set_dram_buffer(uint8_t *buf) {
     virtio_devices.set_dram_buffer(buf);
@@ -519,4 +522,14 @@ void FPGA::set_htif_enabled(bool enabled)
 void FPGA::set_uart_enabled(bool enabled)
 {
     uart_enabled = enabled;
+}
+
+bool FPGA::emulated_mmio_has_request()
+{
+    return(io->emulated_mmio_has_request());
+}
+
+void FPGA::emulated_mmio_respond()
+{
+    io->emulated_mmio_respond();
 }
