@@ -314,6 +314,7 @@ int FPGA::read_irq_status ()
     //request->read_irq_status();
     //wait_misc_response();
     //return misc_rsp_data;
+    return 0;
 }
 /* ----------- XXX IRQs XXX ----------------*/
 

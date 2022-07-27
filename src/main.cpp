@@ -5,14 +5,11 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <semaphore.h>
 #include <string>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <vector>
 
-//#include "GeneratedTypes.h"
-//#include <portal.h>
 #include "fpga.h"
 #include "loadelf.h"
 #include "util.h"

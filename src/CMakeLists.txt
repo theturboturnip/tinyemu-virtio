@@ -10,6 +10,7 @@ set(CMAKE_C_FLAGS "-D_GNU_SOURCE -DCONFIG_VERSION=\"2019-12-21\" ${CMAKE_C_FLAGS
 set(CMAKE_C_FLAGS "-DCONFIG_SLIRP ${CMAKE_C_FLAGS}")
 set(CMAKE_C_FLAGS "-DCONFIG_RISCV_MAX_XLEN=64 -DMAX_XLEN=64 ${CMAKE_C_FLAGS}")
 
+set(CMAKE_CXX_FLAGS "-O2 -pthread -lm -lelf ${CMAKE_CXX_FLAGS}")
 
 if (EXISTS "/usr/bin/sdl-config")
 set(CMAKE_C_FLAGS "-DCONFIG_SDL ${CMAKE_C_FLAGS}")
@@ -107,5 +108,6 @@ set(TINYEMU_SOURCES
   ${SDL_SOURCES}
   )
 
-add_library(tinyemu ${TINYEMU_SOURCES})
-target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES})
+add_executable(main ${TINYEMU_SOURCES})
+#add_library(tinyemu ${TINYEMU_SOURCES})
+#target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES})
