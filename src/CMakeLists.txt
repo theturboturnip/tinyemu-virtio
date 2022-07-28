@@ -10,8 +10,6 @@ set(CMAKE_C_FLAGS "-D_GNU_SOURCE -DCONFIG_VERSION=\"2019-12-21\" ${CMAKE_C_FLAGS
 set(CMAKE_C_FLAGS "-DCONFIG_SLIRP ${CMAKE_C_FLAGS}")
 set(CMAKE_C_FLAGS "-DCONFIG_RISCV_MAX_XLEN=64 -DMAX_XLEN=64 ${CMAKE_C_FLAGS}")
 
-set(CMAKE_CXX_FLAGS "-O2 -pthread -lm -lelf ${CMAKE_CXX_FLAGS}")
-
 if (EXISTS "/usr/bin/sdl-config")
 set(CMAKE_C_FLAGS "-DCONFIG_SDL ${CMAKE_C_FLAGS}")
 set(SDL_SOURCES "sdl.c")
@@ -67,8 +65,6 @@ set(TINYEMU_SOURCES
   cutils.c
   cutils.h
   fbuf.h
-  fpga.cpp
-  fpga.h
   fs.c
   fs.h
   fs_disk.c
@@ -78,15 +74,12 @@ set(TINYEMU_SOURCES
   ide.h
   iomem.c
   iomem.h
-  # jsemu.c
+  #jsemu.c
   json.c
   json.h
   list.h
-  loadelf.cpp
-  loadelf.h
   machine.c
   machine.h
-  main.cpp
   pci.c
   pci.h
   pckbd.c
@@ -96,18 +89,25 @@ set(TINYEMU_SOURCES
   sha256.h
   simplefb.c
   temu.c
-  util.cpp
-  util.h
   vga.c
-  virtio.c
-  virtio.h
-  virtiodevices.cpp
-  virtiodevices.h
   vmmouse.c
   ${FS_NET_SOURCES}
   ${SDL_SOURCES}
   )
 
-add_executable(main ${TINYEMU_SOURCES})
-#add_library(tinyemu ${TINYEMU_SOURCES})
-#target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES})
+add_library(tinyemu ${TINYEMU_SOURCES})
+target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES})
+
+add_executable(ssith_aws_fpga
+  fpga.h
+  fpga.cpp
+  loadelf.cpp
+  loadelf.h
+  main.cpp
+  util.cpp
+  util.h
+  virtio.c
+  virtio.h
+  virtiodevices.cpp
+  virtiodevices.h)
+target_link_libraries(ssith_aws_fpga tinyemu pthread elf)

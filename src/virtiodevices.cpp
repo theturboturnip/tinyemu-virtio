@@ -67,7 +67,7 @@ void VirtioDevices::set_dram_buffer(uint8_t *buf) {
 }
 
 void VirtioDevices::xdma_init(int c2h_fd, int h2c_fd) {
-    virtio_xdma_init(c2h_fd, h2c_fd);
+    //virtio_xdma_init(c2h_fd, h2c_fd);
 }
 
 VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
