@@ -10,12 +10,6 @@ set(CMAKE_C_FLAGS "-D_GNU_SOURCE -DCONFIG_VERSION=\"2019-12-21\" ${CMAKE_C_FLAGS
 set(CMAKE_C_FLAGS "-DCONFIG_SLIRP ${CMAKE_C_FLAGS}")
 set(CMAKE_C_FLAGS "-DCONFIG_RISCV_MAX_XLEN=64 -DMAX_XLEN=64 ${CMAKE_C_FLAGS}")
 
-if (EXISTS "/usr/bin/sdl-config")
-set(CMAKE_C_FLAGS "-DCONFIG_SDL ${CMAKE_C_FLAGS}")
-set(SDL_SOURCES "sdl.c")
-set(SDL_LIBRARIES -L/usr/lib/x86_64-linux-gnu -lSDL)
-endif()
-
 if (EXISTS "/usr/bin/curl-config")
 set(CMAKE_C_FLAGS "-DCONFIG_FS_NET ${CMAKE_C_FLAGS}")
 set(FS_NET_SOURCES block_net.c fs_net.c fs_wget.c fs_wget.h)
@@ -58,41 +52,36 @@ set(TINYEMU_SOURCES
   slirp/tftp.h
   slirp/udp.c
   slirp/udp.h
-  aes.c
-  aes.h
   # Don't override our main!
   #build_filelist.c
   cutils.c
   cutils.h
-  fbuf.h
   fs.c
   fs.h
   fs_disk.c
   fs_utils.c
   fs_utils.h
-  ide.c
-  ide.h
   iomem.c
   iomem.h
-  #jsemu.c
   json.c
   json.h
   list.h
-  machine.c
-  machine.h
   pci.c
   pci.h
   pckbd.c
-  ps2.c
-  ps2.h
   sha256.c
   sha256.h
   simplefb.c
   temu.c
-  vga.c
-  vmmouse.c
   ${FS_NET_SOURCES}
-  ${SDL_SOURCES}
+  util.cpp
+  util.h
+  virtio.c
+  virtio.h
+  virtiodevices.cpp
+  virtiodevices.h
+  loadelf.cpp
+  loadelf.h
   )
 
 add_library(tinyemu ${TINYEMU_SOURCES})
@@ -101,13 +90,6 @@ target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES})
 add_executable(ssith_aws_fpga
   fpga.h
   fpga.cpp
-  loadelf.cpp
-  loadelf.h
   main.cpp
-  util.cpp
-  util.h
-  virtio.c
-  virtio.h
-  virtiodevices.cpp
-  virtiodevices.h)
+  )
 target_link_libraries(ssith_aws_fpga tinyemu pthread elf)
