@@ -13,8 +13,8 @@
 #define FROMHOST_OFFSET 8
 #define FIRST_VIRTIO_IRQ 1
 
-static int debug_virtio = 0;
-static int debug_stray_io = 0;
+static int debug_virtio = 1;
+static int debug_stray_io = 1;
 
 extern FPGA *fpga;
 
@@ -22,7 +22,13 @@ class FPGA_io {
 private:
     FPGA *fpga;
     int mmio_fd;
-    uint64_t fmem_read(uint32_t offset)
+    uint8_t fmem_read8(uint32_t offset)
+    {
+        uint32_t offset32 = offset & (~0x3);
+        uint32_t wide = fmem_read32(offset32);
+        return ((wide >> ((offset & 0x3)*8)) & 0xFF);
+    }
+    uint64_t fmem_read32(uint32_t offset)
     {
         struct fmem_request req;
         int error;
@@ -36,7 +42,7 @@ private:
 
             return (0);
     }
-    uint64_t fmem_write(uint32_t offset, uint32_t data)
+    uint64_t fmem_write32(uint32_t offset, uint32_t data)
     {
         struct fmem_request req;
         int error;
@@ -50,9 +56,9 @@ private:
     }
     uint64_t fmem_write64(uint32_t offset, uint64_t data)
     {
-        int error = fmem_write(offset, data);
+        int error = fmem_write32(offset, data);
         if (error) return error;
-        return (fmem_write(offset+4, data>>32));
+        return (fmem_write32(offset+4, data>>32));
     }
 public:
     FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
@@ -68,14 +74,15 @@ public:
             filename[255] = '\0';
         }
         mmio_fd = open(filename, O_RDWR);
-        fmem_write(VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
+        fmem_write32(VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
     }
     void ddr_data ( const uint8_t *data ) {
         memcpy(&fpga->pcis_rsp_data, data, 64);
         sem_post(&fpga->sem_misc_response);
     }
     bool emulated_mmio_has_request() {
-        return (fmem_read(VD_REQ_LEVEL) == 0);
+        //printf("virtio vd_req_level: %x", fmem_read8(VD_REQ_LEVEL));
+        return (fmem_read8(VD_REQ_LEVEL) != 0);
     }
     void emulated_mmio_respond();
     void console_putchar(uint64_t wdata);
@@ -93,10 +100,10 @@ void FPGA_io::irq_status ( const uint32_t levels )
 
 void
 FPGA_io::emulated_mmio_respond() {
-    if (fmem_read(VD_IS_WRITE)) {
-        uint32_t waddr = fmem_read(VD_WRITE_ADDR);
-        uint64_t wdata = (fmem_read(VD_WRITE_DATA_HI)<<32) | fmem_read(VD_WRITE_DATA_LO);
-        uint8_t wstrb = fmem_read(VD_WRITE_BYEN);
+    if (fmem_read8(VD_IS_WRITE)) {
+        uint32_t waddr = fmem_read32(VD_WRITE_ADDR);
+        uint64_t wdata = (fmem_read32(VD_WRITE_DATA_HI)<<32) | fmem_read32(VD_WRITE_DATA_LO);
+        uint8_t wstrb = fmem_read8(VD_WRITE_BYEN);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(waddr);
         if (pr) {
             int size_log2 = 2;
@@ -150,9 +157,9 @@ FPGA_io::emulated_mmio_respond() {
             if (debug_stray_io) fprintf(stderr, "    io_wdata wdata=%lx wstrb=%x\r\n", wdata, wstrb);
         }
     } else { // must be a read request
-        uint32_t araddr = fmem_read(VD_READ_ADDR);
-        uint16_t arlen = fmem_read(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
-        uint16_t arid = fmem_read(VD_REQ_ID);
+        uint32_t araddr = fmem_read32(VD_READ_ADDR);
+        uint16_t arlen = fmem_read8(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
+        uint16_t arid = fmem_read32(VD_REQ_ID);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(araddr);
         if (pr) {
             uint32_t offset = araddr - pr->addr;
@@ -201,7 +208,7 @@ FPGA_io::emulated_mmio_respond() {
             }
         }
     }
-    fmem_write(1, VD_SEND_RESP); // Send any response.
+    fmem_write32(VD_SEND_RESP, 1); // Send any response.
 }
 
 

@@ -18,7 +18,7 @@
 #ifdef SIMULATION
 #define DEFAULT_XDMA_ENABLED 0
 #else
-#define DEFAULT_XDMA_ENABLED 1
+#define DEFAULT_XDMA_ENABLED 0 // XXX make DMA work.
 #endif
 
 #define DEBUG_LOOP 0
@@ -30,17 +30,11 @@
 
 const struct option long_options[] = {
     { "block", required_argument, 0, 'B' },
-    { "bootrom", required_argument, 0, 'b' },
-    { "cpuverbosity",   required_argument, 0, 'v' },
     { "dma",     optional_argument, 0, 'D' },
-    { "dtb",     required_argument, 0, 'd' },
-    { "elf",     required_argument, 0, 'e' },
-    { "entry",   required_argument, 0, 'E' },
+    { "dtb",     optional_argument, 0, 'd' },
+    { "elf",     optional_argument, 0, 'e' },
     { "help",    no_argument, 0, 'h' },
     { "htif-console",  optional_argument, 0, 'H' },
-#if DEBUG_LOOP
-    { "sleep-seconds", required_argument, 0, 's' },
-#endif
     { "tun",      required_argument,       0, 't' },
     { "uart",          optional_argument, 0, 'U' },
     { "uart-console",  optional_argument, 0, 'U' },
@@ -90,15 +84,12 @@ int main(int argc, char * const *argv)
 
     while (1) {
         int option_index = optind ? optind : 1;
-        char c = getopt_long(argc, argv, "b:B:Cd:D:e:G:hH:LMp:s:STvU:X:",
+        char c = getopt_long(argc, argv, "B:C:d:D:e:hH:LMp:U:X:",
                              long_options, &option_index);
         if (c == -1)
             break;
 
         switch (c) {
-        case 'b':
-            bootrom_filename = optarg;
-            break;
         case 'B':
             block_files.push_back(std::string(optarg));
             break;
@@ -108,9 +99,6 @@ int main(int argc, char * const *argv)
             } else {
                 enable_virtio_console = 1;
             }
-            break;
-        case 'd':
-            dtb_filename = optarg;
             break;
         case 'D':
             if (optarg) {
@@ -206,8 +194,8 @@ int main(int argc, char * const *argv)
     bootInstrs[1] = 0x0000006f; // loop forever
 
     // load the ROM code
-    if (bootrom_filename)
-        copyFile((char *)romBuffer, bootrom_filename, rom_alloc_sz);
+    //if (bootrom_filename)
+    //    copyFile((char *)romBuffer, bootrom_filename, rom_alloc_sz);
 
     if (enable_virtio_console) {
         debugLog("Enabling virtio console\r\n");
@@ -221,15 +209,16 @@ int main(int argc, char * const *argv)
     // Start up vitio device emulation
     fpga->start_io();
 
+    while (1) {
+        if (fpga->emulated_mmio_has_request())
+            fpga->emulated_mmio_respond();
+        else usleep(100000); // Wait in hope of a new request.
+    }
+    
     int exit_code = fpga->join_io();
     if (exit_code == EXIT_CODE_RESET) {
         fpga->get_virtio_devices().reset();
     }
     
-    while (1) {
-        if (fpga->emulated_mmio_has_request())
-            fpga->emulated_mmio_respond();
-        else usleep(1000); // Wait in hope of a new request.
-    }
     return exit_code;
 }

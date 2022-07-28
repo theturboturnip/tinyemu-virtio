@@ -84,7 +84,7 @@ VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
 
     // set up a network device
     virtio_bus->irq = &irq[irq_num++];
-    ethernet_device = tun_ifname ? tun_open(tun_ifname) : slirp_open();
+    ethernet_device = /*tun_ifname ? tun_open(tun_ifname) :*/ slirp_open();
     virtio_net = virtio_net_init(virtio_bus, ethernet_device);
     debugLog("ethernet device %p virtio net device %p at addr %08lx\r\n", ethernet_device, virtio_net, virtio_bus->addr);
 
