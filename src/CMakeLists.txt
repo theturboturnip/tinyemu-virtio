@@ -58,20 +58,14 @@ set(TINYEMU_SOURCES
   cutils.h
   fs.c
   fs.h
-  fs_disk.c
-  fs_utils.c
-  fs_utils.h
+  #fs_disk.c
+  #fs_utils.c
+  #fs_utils.h
   iomem.c
   iomem.h
-  json.c
-  json.h
   list.h
   pci.c
   pci.h
-  pckbd.c
-  sha256.c
-  sha256.h
-  simplefb.c
   temu.c
   ${FS_NET_SOURCES}
   util.cpp
