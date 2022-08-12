@@ -81,9 +81,9 @@ set(TINYEMU_SOURCES
 add_library(tinyemu ${TINYEMU_SOURCES})
 target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES})
 
-add_executable(ssith_aws_fpga
+add_executable(fmem_virtio_host
   fpga.h
   fpga.cpp
   main.cpp
   )
-target_link_libraries(ssith_aws_fpga tinyemu pthread elf)
+target_link_libraries(fmem_virtio_host tinyemu pthread elf)
