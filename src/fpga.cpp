@@ -81,7 +81,7 @@ public:
         sem_post(&fpga->sem_misc_response);
     }
     bool emulated_mmio_has_request() {
-        //printf("virtio vd_req_level: %x", fmem_read8(VD_REQ_LEVEL));
+        printf("virtio vd_req_level: %x", fmem_read8(VD_REQ_LEVEL));
         return (fmem_read8(VD_REQ_LEVEL) != 0);
     }
     void emulated_mmio_respond();
@@ -101,7 +101,7 @@ void FPGA_io::irq_status ( const uint32_t levels )
 void
 FPGA_io::emulated_mmio_respond() {
     if (fmem_read8(VD_IS_WRITE)) {
-        uint32_t waddr = fmem_read32(VD_WRITE_ADDR);
+        uint32_t waddr = fmem_read32(VD_WRITE_ADDR) | (0x4<<28);
         uint64_t wdata = (fmem_read32(VD_WRITE_DATA_HI)<<32) | fmem_read32(VD_WRITE_DATA_LO);
         uint8_t wstrb = fmem_read8(VD_WRITE_BYEN);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(waddr);
@@ -154,28 +154,28 @@ FPGA_io::emulated_mmio_respond() {
                 fprintf(stderr, "\r\nSiFive Test Finisher: status=%04x\r\n", status);
             }
         } else {
-            if (debug_stray_io) fprintf(stderr, "    io_wdata wdata=%lx wstrb=%x\r\n", wdata, wstrb);
+            if (debug_stray_io) fprintf(stderr, "Stray io! waddr %08x io_wdata wdata=%lx wstrb=%x\r\n", waddr, wdata, wstrb);
         }
     } else { // must be a read request
-        uint32_t araddr = fmem_read32(VD_READ_ADDR);
-        uint16_t arlen = fmem_read8(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
+        uint32_t araddr = fmem_read32(VD_READ_ADDR) | (0x4<<28);
+        uint16_t arlen = 0;//fmem_read8(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
         uint16_t arid = fmem_read32(VD_REQ_ID);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(araddr);
         if (pr) {
             uint32_t offset = araddr - pr->addr;
             int size_log2 = 2;
             if (debug_virtio) fprintf(stderr, "virtio araddr %08x device addr %08lx offset %08x len %d\r\n", araddr, pr->addr, offset, arlen);
-            for (int i = 0; i < arlen / 8; i++) {
-                int last = i == ((arlen / 8) - 1);
+            //for (int i = 0; i < arlen / 8; i++) {
+                int last = 1;//= i == ((arlen / 8) - 1);
                 uint64_t val = pr->read_func(pr->opaque, offset, size_log2);
                 if ((offset % 8) == 4)
-                val = (val << 32);
+                    val = (val << 32);
                 fmem_write64(VD_READ_DATA,val);
                 if (debug_virtio)
                     fprintf(stderr, "virtio araddr %0x device addr %08lx offset %08x len %d val %08lx last %d\r\n",
-                            araddr + i * 4, pr->addr, offset, arlen, val, last);
-                offset += 4;
-            }
+                            araddr, pr->addr, offset, arlen, val, last);
+                //offset += 4;
+            //}
         } else if (fpga->rom.base <= araddr && araddr < fpga->rom.limit) {
             int offset = (araddr - fpga->rom.base) / 8;
             //fprintf(stderr, "rom offset %x data %08lx\r\n", (int)(araddr - fpga->rom.base), fpga->rom.data[offset]);
