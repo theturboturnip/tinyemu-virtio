@@ -101,7 +101,7 @@ void FPGA_io::irq_status ( const uint32_t levels )
 void
 FPGA_io::emulated_mmio_respond() {
     if (fmem_read8(VD_IS_WRITE)) {
-        uint32_t waddr = fmem_read32(VD_WRITE_ADDR) | (0x4<<28);
+        uint32_t waddr = fmem_read32(VD_WRITE_ADDR);
         uint64_t wdata = (fmem_read32(VD_WRITE_DATA_HI)<<32) | fmem_read32(VD_WRITE_DATA_LO);
         uint8_t wstrb = fmem_read8(VD_WRITE_BYEN);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(waddr);
@@ -157,7 +157,7 @@ FPGA_io::emulated_mmio_respond() {
             if (debug_stray_io) fprintf(stderr, "Stray io! waddr %08x io_wdata wdata=%lx wstrb=%x\r\n", waddr, wdata, wstrb);
         }
     } else { // must be a read request
-        uint32_t araddr = fmem_read32(VD_READ_ADDR) | (0x4<<28);
+        uint32_t araddr = fmem_read32(VD_READ_ADDR);
         uint16_t arlen = 0;//fmem_read8(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
         uint16_t arid = fmem_read32(VD_REQ_ID);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(araddr);
