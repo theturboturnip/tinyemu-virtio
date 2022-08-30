@@ -31,21 +31,6 @@ void fpga_set_irq(void *opaque, int irq_num, int level)
 	fpga->irq_clear_levels(1 << irq_num);
 }
 
-static PhysMemoryRange *fpga_register_ram(PhysMemoryMap *s, uint64_t addr,
-                                          uint64_t size, int devram_flags, uint8_t *phys_mem)
-{
-    PhysMemoryRange *pr;
-
-    pr = register_ram_entry(s, addr, size, devram_flags);
-
-    pr->phys_mem = phys_mem;
-    if (!pr->phys_mem) {
-        fprintf(stderr, "Could not allocate VM memory\r\n");
-        exit(1);
-    }
-    return pr;
-}
-
 static void console_write_data(void *opaque, const uint8_t *buf, int buf_len)
 {
     fwrite(buf, 1, buf_len, stdout);
@@ -59,15 +44,6 @@ static int console_read_data(void *opaque, uint8_t *buf, int len)
         return 0;
 
     return ret;
-}
-
-void VirtioDevices::set_dram_buffer(uint8_t *buf) {
-    fpga_register_ram(mem_map, 0x80000000, 0x40000000, 0, buf);
-    fpga_register_ram(mem_map, 0xC0000000, 0x40000000, 0, buf + 0x40000000);
-}
-
-void VirtioDevices::xdma_init(int c2h_fd, int h2c_fd) {
-    //virtio_xdma_init(c2h_fd, h2c_fd);
 }
 
 VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
@@ -86,13 +62,13 @@ VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
     virtio_bus->irq = &irq[irq_num++];
     ethernet_device = /*tun_ifname ? tun_open(tun_ifname) :*/ slirp_open();
     virtio_net = virtio_net_init(virtio_bus, ethernet_device);
-    debugLog("ethernet device %p virtio net device %p at addr %08lx\r\n", ethernet_device, virtio_net, virtio_bus->addr);
+    debugLog("ethernet device %p virtio net device %p at addr %08lx\r\r\n", ethernet_device, virtio_net, virtio_bus->addr);
 
     // set up an entropy device
     virtio_bus->addr += 0x1000;
     virtio_bus->irq = &irq[irq_num++];
     virtio_entropy = virtio_entropy_init(virtio_bus);
-    debugLog("virtio entropy device %p at addr %08lx\r\n", virtio_entropy, virtio_bus->addr);
+    debugLog("virtio entropy device %p at addr %08lx\r\r\n", virtio_entropy, virtio_bus->addr);
 }
 
 VirtioDevices::~VirtioDevices() {
@@ -107,9 +83,9 @@ void VirtioDevices::add_virtio_block_device(std::string filename)
     virtio_bus->addr += 0x1000;
     virtio_bus->irq = &irq[irq_num++];
     block_device = block_device_init(filename.c_str(), BF_MODE_RW);
-    debugLog("block device %s (%p)\r\n", filename.c_str(), block_device);
+    debugLog("block device %s (%p)\r\r\n", filename.c_str(), block_device);
     virtio_block = virtio_block_init(virtio_bus, block_device);
-    debugLog("virtio block device %p at addr %08lx\r\n", virtio_block, virtio_bus->addr);
+    debugLog("virtio block device %p at addr %08lx\r\r\n", virtio_block, virtio_bus->addr);
 
 }
 
@@ -211,6 +187,7 @@ void *VirtioDevices::process_io_thread(void *opaque)
 
 void VirtioDevices::start()
 {
+    printf("VirtioDevices::start\r\n");
     VIRTIODevice *ps[4];
     int n = 0;
 #define ADD_DEVICE(s) if (s) ps[n++] = s

@@ -22,46 +22,77 @@ class FPGA_io {
 private:
     FPGA *fpga;
     int mmio_fd;
-    uint8_t fmem_read8(uint32_t offset)
-    {
-        uint32_t offset32 = offset & (~0x3);
-        uint32_t wide = fmem_read32(offset32);
-        return ((wide >> ((offset & 0x3)*8)) & 0xFF);
-    }
-    uint64_t fmem_read32(uint32_t offset)
+    int dma_fd;
+    uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
     {
         struct fmem_request req;
         int error;
-
-        req.offset = offset;
+        // Sanitise to a 32-bit access, as something in the chain
+        // only supports 32-bit currently.
+        uint32_t adr_mask = ((-1)<<2);
+        req.offset = offset & adr_mask;
         req.access_width = 4;
 
-        error = ioctl(mmio_fd, FMEM_READ, &req);
-        if (error == 0)
-            return (req.data);
-
-            return (0);
+        error = ioctl(fd, FMEM_READ, &req);
+        if (error == 0){
+            uint32_t wide = req.data;
+            // These next two lines could be simpler, but shifting by >=32 is undefined.
+            uint32_t dat_mask = -1;
+            if (width == 1) dat_mask = 0xFF;
+            if (width == 2) dat_mask = 0xFFFF;
+            printf("read! req.data: %x, adr_mask: %x, dat_mask: %x \r\n", req.data, adr_mask, dat_mask);
+            return ((wide >> ((offset & ~adr_mask)*8)) & dat_mask);
+        } else return (0);
     }
-    uint64_t fmem_write32(uint32_t offset, uint32_t data)
+    uint8_t fmem_read8(int fd, uint32_t offset)
+    {
+        return fmem_read(fd, offset, 1);
+    }
+    uint16_t fmem_read16(int fd, uint32_t offset)
+    {
+        return fmem_read(fd, offset, 2);
+    }
+    uint32_t fmem_read32(int fd, uint32_t offset)
+    {
+        return fmem_read(fd, offset, 4);
+    }
+    uint64_t fmem_read64(int fd, uint32_t offset)
+    {
+        uint64_t hi = fmem_read32(fd, offset+4);
+        return (hi<<32) | fmem_read32(fd, offset);
+    }
+    uint64_t fmem_write(int fd, uint32_t offset, uint32_t data, uint8_t width)
     {
         struct fmem_request req;
         int error;
 
         req.offset = offset;
         req.data = data;
-        req.access_width = 4;
+        req.access_width = width;
 
         error = ioctl(mmio_fd, FMEM_WRITE, &req);
         return (error);
     }
-    uint64_t fmem_write64(uint32_t offset, uint64_t data)
+    uint64_t fmem_write8(int fd, uint32_t offset, uint8_t data)
     {
-        int error = fmem_write32(offset, data);
+        return fmem_write(fd, offset, data, 1);
+    }
+    uint64_t fmem_write16(int fd, uint32_t offset, uint16_t data)
+    {
+        return fmem_write(fd, offset, data, 2);
+    }
+    uint64_t fmem_write32(int fd, uint32_t offset, uint32_t data)
+    {
+        return fmem_write(fd, offset, data, 4);
+    }
+    uint64_t fmem_write64(int fd, uint32_t offset, uint64_t data)
+    {
+        int error = fmem_write32(fd, offset, data);
         if (error) return error;
-        return (fmem_write32(offset+4, data>>32));
+        return (fmem_write32(fd, offset+4, data>>32));
     }
 public:
-    FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
+    FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1), dma_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
         // Initialise Memory-mapped IO
         // Open FMEM device for the management interface of the "Virtual Device",
         // a peripheral that captures reads and writes on one interface and provides
@@ -74,20 +105,55 @@ public:
             filename[255] = '\0';
         }
         mmio_fd = open(filename, O_RDWR);
-        fmem_write32(VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
-    }
-    void ddr_data ( const uint8_t *data ) {
-        memcpy(&fpga->pcis_rsp_data, data, 64);
-        sem_post(&fpga->sem_misc_response);
+        // Open DMA fmem file descriptor.
+        // This one allows access to coherent shared memory with the guest.
+        fmemdev = getenv("RISCV_DMA_FMEM_DEV");
+        if (fmemdev) {
+            strncpy(filename, fmemdev, 255);
+        } else {
+            strncpy(filename, "/dev/fmem_sys0_dma", 255);
+        }
+        filename[255] = '\0';
+        dma_fd = open(filename, O_RDWR);
+        if (dma_fd < 0) {
+            fprintf(stderr, "ERROR: Failed to open fmem dma device file: %s\r\n", strerror(errno));
+            abort();
+        }
+        fmem_write32(mmio_fd, VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
     }
     bool emulated_mmio_has_request() {
-        printf("virtio vd_req_level: %x", fmem_read8(VD_REQ_LEVEL));
-        return (fmem_read8(VD_REQ_LEVEL) != 0);
+        return (fmem_read8(mmio_fd, VD_REQ_LEVEL) != 0);
     }
+    //void close_dma();
+    uint8_t dma_read8(uint64_t raddr);
+    void dma_write8(uint64_t waddr, uint8_t wdata);
     void emulated_mmio_respond();
     void console_putchar(uint64_t wdata);
     virtual void uart_tohost(uint8_t ch);
 };
+/*
+void FPGA_io::close_dma()
+{
+    if (dma_fd >= 0)
+        close(dma_fd);
+}
+*/
+uint8_t FPGA_io::dma_read8(uint64_t raddr) {
+    if (dma_fd >= 0) return fmem_read8(dma_fd, raddr);
+    else {
+        fprintf(stderr, "ERROR: Attempted read from unusable fmem dma device file: %s\r\n", strerror(errno));
+        abort();
+    };
+}
+
+void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
+    if (dma_fd >= 0) fmem_write8(dma_fd, waddr, wdata);
+    else {
+        fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
+        abort();
+    };
+}
+
 /*
 void FPGA_io::irq_status ( const uint32_t levels )
 {
@@ -96,14 +162,12 @@ void FPGA_io::irq_status ( const uint32_t levels )
 }
 */
 
-
-
 void
 FPGA_io::emulated_mmio_respond() {
-    if (fmem_read8(VD_IS_WRITE)) {
-        uint32_t waddr = fmem_read32(VD_WRITE_ADDR);
-        uint64_t wdata = (fmem_read32(VD_WRITE_DATA_HI)<<32) | fmem_read32(VD_WRITE_DATA_LO);
-        uint8_t wstrb = fmem_read8(VD_WRITE_BYEN);
+    if (fmem_read8(mmio_fd, VD_IS_WRITE)) {
+        uint32_t waddr = fmem_read32(mmio_fd, VD_WRITE_ADDR);
+        uint64_t wdata = fmem_read64(mmio_fd, VD_WRITE_DATA);
+        uint8_t wstrb = fmem_read8(mmio_fd, VD_WRITE_BYEN);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(waddr);
         if (pr) {
             int size_log2 = 2;
@@ -157,20 +221,19 @@ FPGA_io::emulated_mmio_respond() {
             if (debug_stray_io) fprintf(stderr, "Stray io! waddr %08x io_wdata wdata=%lx wstrb=%x\r\n", waddr, wdata, wstrb);
         }
     } else { // must be a read request
-        uint32_t araddr = fmem_read32(VD_READ_ADDR);
+        uint32_t araddr = fmem_read32(mmio_fd, VD_READ_ADDR);
         uint16_t arlen = 0;//fmem_read8(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
-        uint16_t arid = fmem_read32(VD_REQ_ID);
+        uint16_t arid = fmem_read32(mmio_fd, VD_REQ_ID);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(araddr);
         if (pr) {
             uint32_t offset = araddr - pr->addr;
             int size_log2 = 2;
-            if (debug_virtio) fprintf(stderr, "virtio araddr %08x device addr %08lx offset %08x len %d\r\n", araddr, pr->addr, offset, arlen);
             //for (int i = 0; i < arlen / 8; i++) {
                 int last = 1;//= i == ((arlen / 8) - 1);
                 uint64_t val = pr->read_func(pr->opaque, offset, size_log2);
                 if ((offset % 8) == 4)
-                    val = (val << 32);
-                fmem_write64(VD_READ_DATA,val);
+                    val = (val << 32); // Assuming a 64-bit virtualised data width.
+                fmem_write64(mmio_fd, VD_READ_DATA,val);
                 if (debug_virtio)
                     fprintf(stderr, "virtio araddr %0x device addr %08lx offset %08x len %d val %08lx last %d\r\n",
                             araddr, pr->addr, offset, arlen, val, last);
@@ -182,7 +245,7 @@ FPGA_io::emulated_mmio_respond() {
             for (int i = 0; i < arlen / 8; i++) {
                 int last = i == ((arlen / 8) - 1);
                 //fprintf(stderr, "io_rdata %08lx\r\n", fpga->rom.data[offset + i]);
-                fmem_write64(VD_READ_DATA,fpga->rom.data[offset + i]);
+                fmem_write64(mmio_fd, VD_READ_DATA,fpga->rom.data[offset + i]);
             }
         } else if (araddr == fpga->fromhost_addr) {
             uint8_t ch = 0;
@@ -190,31 +253,30 @@ FPGA_io::emulated_mmio_respond() {
             fprintf(stderr, "ERROR: fromhost araddr %08x arlen %d\r\n", araddr, arlen);
             if (fpga->htif_enabled && fpga->dequeue_stdin(&ch)) {
                 uint64_t cmd = (1ul << 56) | (0ul << 48) | ch;
-                fmem_write64(VD_READ_DATA,cmd);
+                fmem_write64(mmio_fd, VD_READ_DATA,cmd);
             } else {
-                fmem_write64(VD_READ_DATA,0);
+                fmem_write64(mmio_fd, VD_READ_DATA,0);
             }
         } else if (araddr == fpga->sifive_test_addr) {
             for (int i = 0; i < arlen / 8; i++) {
                 int last = i == ((arlen / 8) - 1);
-                fmem_write64(VD_READ_DATA,0);
+                fmem_write64(mmio_fd, VD_READ_DATA,0);
             }
         } else {
             if (araddr != 0x10001000 && araddr != 0x10001008 && araddr != 0x50001000 && araddr != 0x50001008)
                 if (debug_stray_io) fprintf(stderr, "io_araddr araddr=%08x arlen=%d\r\n", araddr, arlen);
             for (int i = 0; i < arlen / 8; i++) {
                 int last = i == ((arlen / 8) - 1);
-                fmem_write64(VD_READ_DATA,0);
+                fmem_write64(mmio_fd, VD_READ_DATA,0);
             }
         }
     }
-    fmem_write32(VD_SEND_RESP, 1); // Send any response.
+    fmem_write32(mmio_fd, VD_SEND_RESP, 1); // Send any response.
 }
-
 
 void FPGA_io::uart_tohost(uint8_t ch) {
     console_putchar(ch);
-    //fprintf(stdout, "uart{%x}\r\n", ch); fflush(stdout);
+    fprintf(stdout, "uart{%x}\r\n", ch); fflush(stdout);
 }
 
 void FPGA_io::console_putchar(uint64_t wdata) {
@@ -224,17 +286,16 @@ void FPGA_io::console_putchar(uint64_t wdata) {
 
 FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
     : io(0), rom(rom), ctrla_seen(0), sifive_test_addr(0x50000000),
-      htif_enabled(0), uart_enabled(0), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface),
-      dma_fd(-1), dram_mapping(0)
+      htif_enabled(0), uart_enabled(0), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface)
 {
     sem_init(&sem_misc_response, 0, 0);
-    io = new FPGA_io(id, this);    
+    io = new FPGA_io(id, this);
     set_htif_base_addr(0x10001000);
 }
 
 FPGA::~FPGA() {
 }
-
+/* // Assume these are unused for fmem world for now.
 void FPGA::map_pcis_dma()
 {
     size_t dram_size = 2 * 1024 * 1024 * 1024ul;
@@ -255,7 +316,6 @@ void FPGA::map_pcis_dma()
         dram_mapping = NULL;
         abort();
     }
-    set_dram_buffer(dram_mapping + dram_offset);
 }
 
 void FPGA::unmap_pcis_dma()
@@ -268,34 +328,23 @@ void FPGA::unmap_pcis_dma()
     dma_fd = -1;
 }
 
-void FPGA::open_dma()
-{
-    dma_fd = open("/dev/fpga_dma", O_RDONLY);
-    if (dma_fd < 0) {
-        fprintf(stderr, "ERROR: Failed to open /dev/xdma0_c2h_0: %s\r\n", strerror(errno));
-        abort();
-    }
-    virtio_devices.xdma_init(dma_fd, dma_fd);
-}
 
 void FPGA::close_dma()
 {
-    if (dma_fd >= 0)
-        close(dma_fd);
+    io->close_dma();
+}
+*/
+void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
+    fprintf(stderr, "DMA read? addr %08x size %ld",
+                    addr, size);
+    for (int i=0; i<size; i++) data[i] = io->dma_read8(addr+i);
+    fprintf(stderr, " data[0]: %c\r\n", data[0]);
 }
 
-void FPGA::write(uint32_t addr, uint8_t *data, size_t size) {
-    if (dma_fd >= 0) {
-        int bytes_written = pwrite(dma_fd, data, size, addr);
-        if (bytes_written < 0) {
-            fprintf(stderr, "pwrite %d addr %08x size %ld failed: %s\r\n",
-                    dma_fd, addr, size, strerror(errno));
-            abort();
-        }
-    } else {
-        uint8_t *ram_ptr = virtio_devices.phys_mem_get_ram_ptr(addr, TRUE);
-        memcpy(ram_ptr, data, size);
-    }
+void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
+    fprintf(stderr, "DMA write? addr %08x size %ld data[0]: %c\r\n",
+                    addr, size, data[0]);
+    for (int i=0; i<size; i++) io->dma_write8(addr+i, data[i]);
 }
 
 /* XXX Implement IRQs somehow.  Just stubbed out for now. */
@@ -324,11 +373,6 @@ int FPGA::read_irq_status ()
     return 0;
 }
 /* ----------- XXX IRQs XXX ----------------*/
-
-
-void FPGA::set_dram_buffer(uint8_t *buf) {
-    virtio_devices.set_dram_buffer(buf);
-}
 
 void FPGA::enqueue_stdin(char *buf, size_t num_chars)
 {
@@ -440,6 +484,7 @@ void *FPGA::process_stdin_thread(void *opaque)
 
 void FPGA::start_io()
 {
+    printf("start_io\r\n");
     if (!done_termios) {
         struct termios stdin_termios;
         struct termios stdout_termios;

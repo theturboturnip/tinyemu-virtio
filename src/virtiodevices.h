@@ -34,8 +34,6 @@ class VirtioDevices {
   ~VirtioDevices();
   PhysMemoryRange *get_phys_mem_range(uint64_t paddr);
   uint8_t *phys_mem_get_ram_ptr(uint64_t paddr, BOOL is_rw);
-  void set_dram_buffer(uint8_t *buf);
-  void xdma_init(int c2h_fd, int h2c_fd);
   void add_virtio_block_device(std::string filename);
   void add_virtio_console_device();
   void set_virtio_stdin_fd(int fd);

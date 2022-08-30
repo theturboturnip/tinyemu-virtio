@@ -175,14 +175,6 @@ int main(int argc, char * const *argv)
 
     Rom rom = { BOOTROM_BASE, BOOTROM_LIMIT, (uint64_t *)romBuffer };
     fpga = new FPGA(1, rom, tun_iface); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
-#ifdef SIMULATION
-    fpga->map_simulated_dram();
-#else
-    if (dma_enabled) // XXX which of these are we using??
-        fpga->map_pcis_dma();
-    if (xdma_enabled)
-        fpga->open_dma();
-#endif
     fpga->set_uart_enabled(uart_enabled);
 
     for (std::string block_file: block_files) {
@@ -192,10 +184,6 @@ int main(int argc, char * const *argv)
     uint32_t *bootInstrs = (uint32_t *)romBuffer;
     bootInstrs[0] = 0x0000006f; // loop forever
     bootInstrs[1] = 0x0000006f; // loop forever
-
-    // load the ROM code
-    //if (bootrom_filename)
-    //    copyFile((char *)romBuffer, bootrom_filename, rom_alloc_sz);
 
     if (enable_virtio_console) {
         debugLog("Enabling virtio console\r\n");

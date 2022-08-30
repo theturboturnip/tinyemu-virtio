@@ -51,7 +51,7 @@ static inline ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
 #include "list.h"
 #include "virtio.h"
 
-//#define DEBUG_VIRTIO
+#define DEBUG_VIRTIO
 
 /* MMIO addresses - from the Linux kernel */
 #define VIRTIO_MMIO_MAGIC_VALUE         0x000
@@ -329,6 +329,7 @@ static void virtio_init(VIRTIODevice *s, VIRTIOBusDef *bus,
     s->vendor_id = 0xffff;
     s->config_space_size = config_space_size;
     s->device_recv = device_recv;
+    s->debug = 1; // XXX for debug.
     virtio_reset(s);
 }
 
@@ -337,12 +338,15 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr, const 
 
 static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
 {
+    printf("virtio_read16 phys_addr: %lx xdma_ch2h_fd: %x \r\n", addr, xdma_c2h_fd);
     if (xdma_c2h_fd == -1) {
         uint8_t *ptr;
         if (addr & 1)
             return 0; /* unaligned access are not supported */
 
         ptr = s->get_ram_ptr(s, addr, FALSE);
+        printf("virtio_read16 phys_addr: get_ram_ptr: %p \r\n", ptr);
+
         if (!ptr)
             return 0;
         return *(uint16_t *)ptr;
@@ -397,6 +401,7 @@ static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
             ptr = s->get_ram_ptr(s, addr, FALSE);
             if (!ptr)
                 return -1;
+            printf("virtio_memcpy_from_ram from %p to %p, length %d \r\n", buf, ptr, l);
             memcpy(buf, ptr, l);
             addr += l;
             buf += l;
@@ -469,6 +474,8 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 {
     VIRTIODesc desc;
     int l, f_write_flag;
+    
+    printf("memcpy_to_from_queue! buf: %p, offset: %x, count: %x, to_queue: %d", buf, offset, count, to_queue);
 
     if (count == 0)
         return 0;
@@ -609,6 +616,8 @@ static void queue_notify(VIRTIODevice *s, int queue_idx)
     uint16_t avail_idx;
     int desc_idx, read_size, write_size;
 
+    printf("queue_notify manual_recv: %d\r\n", qs->manual_recv);
+
     avail_idx = virtio_read16(s, qs->avail_addr + 2);
     qs->avail_idx = avail_idx;
     if (qs->manual_recv)
@@ -621,7 +630,7 @@ static void queue_notify(VIRTIODevice *s, int queue_idx)
         if (!get_desc_rw_size(s, &read_size, &write_size, queue_idx, desc_idx)) {
 #ifdef DEBUG_VIRTIO
             if (s->debug & VIRTIO_DEBUG_IO) {
-                printf("queue_notify: idx=%d read_size=%d write_size=%d\n",
+                printf("queue_notify: idx=%d read_size=%d write_size=%d\r\n",
                        queue_idx, read_size, write_size);
             }
 #endif
@@ -782,7 +791,7 @@ static uint32_t virtio_mmio_read(void *opaque, uint32_t offset, int size_log2)
     }
 #ifdef DEBUG_VIRTIO
     if (s->debug & VIRTIO_DEBUG_IO) {
-        printf("virto_mmio_read: offset=0x%x val=0x%x size=%d\n",
+        printf("virtio_mmio_read: offset=0x%x val=0x%x size=%d\r\n",
                offset, val, 1 << size_log2);
     }
 #endif
@@ -814,7 +823,7 @@ static void virtio_mmio_write(void *opaque, uint32_t offset,
 
 #ifdef DEBUG_VIRTIO
     if (s->debug & VIRTIO_DEBUG_IO) {
-        printf("virto_mmio_write: offset=0x%x val=0x%x size=%d\n",
+        printf("virtio_mmio_write: offset=0x%x val=0x%x size=%d\r\n",
                offset, val, 1 << size_log2);
     }
 #endif
@@ -870,6 +879,7 @@ static void virtio_mmio_write(void *opaque, uint32_t offset,
             s->queue[s->queue_sel].ready = val & 1;
             break;
         case VIRTIO_MMIO_QUEUE_NOTIFY:
+            printf("VIRTIO_MMIO_QUEUE_NOTIFY queue: %d, MAX_QUEUE: %d \r\n", val, MAX_QUEUE);
             if (val < MAX_QUEUE) {
                 async_queue_notify(s, val);
             }
@@ -947,6 +957,7 @@ static uint32_t virtio_pci_read(void *opaque, uint32_t offset1, int size_log2)
                 val = s->queue[s->queue_sel].ready;
                 break;
             case VIRTIO_PCI_QUEUE_NOTIFY_OFF:
+                printf("turn off queue notify");
                 val = 0;
                 break;
             }
@@ -971,7 +982,7 @@ static uint32_t virtio_pci_read(void *opaque, uint32_t offset1, int size_log2)
     }
 #ifdef DEBUG_VIRTIO
     if (s->debug & VIRTIO_DEBUG_IO) {
-        printf("virto_pci_read: offset=0x%x val=0x%x size=%d\n",
+        printf("virto_pci_read: offset=0x%x val=0x%x size=%d\r\n",
                offset1, val, 1 << size_log2);
     }
 #endif
@@ -986,7 +997,7 @@ static void virtio_pci_write(void *opaque, uint32_t offset1,
 
 #ifdef DEBUG_VIRTIO
     if (s->debug & VIRTIO_DEBUG_IO) {
-        printf("virto_pci_write: offset=0x%x val=0x%x size=%d\n",
+        printf("virto_pci_write: offset=0x%x val=0x%x size=%d\r\n",
                offset1, val, 1 << size_log2);
     }
 #endif
@@ -1143,7 +1154,7 @@ static void virtio_block_req_cb(void *opaque, int ret)
 {
     VIRTIODevice *s = opaque;
     VIRTIOBlockDevice *s1 = (VIRTIOBlockDevice *)s;
-
+    printf("virtio_block_req_cb");
     virtio_block_req_end(s, ret);
 
     s1->req_in_progress = FALSE;
@@ -1162,6 +1173,8 @@ static int virtio_block_recv_request(VIRTIODevice *s, int queue_idx,
     BlockRequestHeader h;
     uint8_t *buf, buf1[1];
     int len, ret;
+
+    printf("virtio_block_recv_request\r\n");
 
     if (s1->req_in_progress)
         return -1;
@@ -1323,7 +1336,7 @@ static void virtio_net_set_carrier(EthernetDevice *es, BOOL carrier_state)
 VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es)
 {
     VIRTIONetDevice *s;
-
+    printf("virtio_net_init\r\n");
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 1, 6 + 2, virtio_net_recv_request);
@@ -1361,6 +1374,8 @@ static int virtio_console_recv_request(VIRTIODevice *s, int queue_idx,
     CharacterDevice *cs = s1->cs;
     uint8_t *buf;
 
+    printf("virtio_console_recv_request\r\n");
+
     if (queue_idx == 1) {
         /* send to console */
         buf = malloc(read_size+1);
@@ -1376,6 +1391,7 @@ static int virtio_console_recv_request(VIRTIODevice *s, int queue_idx,
 BOOL virtio_console_can_write_data(VIRTIODevice *s)
 {
     QueueState *qs = &s->queue[0];
+    printf("virtio_console_can_write_data\r\n");
 
     if (!qs->ready) {
         return FALSE;
@@ -1540,7 +1556,7 @@ static int virtio_input_recv_request(VIRTIODevice *s, int queue_idx,
 {
     if (queue_idx == 1) {
         /* led & keyboard updates */
-        //        printf("%s: write_size=%d\n", __func__, write_size);
+        printf("%s: write_size=%d\r\n", __func__, write_size);
         virtio_consume_desc(s, queue_idx, desc_idx, 0);
     }
     return 0;
@@ -1556,6 +1572,7 @@ static int virtio_input_queue_event(VIRTIODevice *s,
     int desc_idx, buf_len;
     uint8_t buf[8];
 
+    printf("send: queue_idx=%d ready=%d\r\n", queue_idx, qs->ready);
     if (!qs->ready)
         return -1;
 
@@ -1568,7 +1585,7 @@ static int virtio_input_queue_event(VIRTIODevice *s,
         return -1;
     desc_idx = virtio_read16(s, qs->avail_addr + 4 +
                              (qs->last_avail_idx & (qs->num - 1)) * 2);
-    //    printf("send: queue_idx=%d desc_idx=%d\n", queue_idx, desc_idx);
+    printf("send: queue_idx=%d desc_idx=%d\r\n", queue_idx, desc_idx);
     memcpy_to_queue(s, queue_idx, desc_idx, 0, buf, buf_len);
     virtio_consume_desc(s, queue_idx, desc_idx, buf_len);
     qs->last_avail_idx++;
@@ -1648,7 +1665,7 @@ static void virtio_input_config_write(VIRTIODevice *s)
     uint8_t *config = s->config_space;
     int i;
 
-    //    printf("config_write: %02x %02x\n", config[0], config[1]);
+    //    printf("config_write: %02x %02x\r\n", config[0], config[1]);
     switch(config[0]) {
     case VIRTIO_INPUT_CFG_UNSET:
         break;
@@ -2104,7 +2121,7 @@ static void virtio_9p_send_reply(VIRTIO9PDevice *s, int queue_idx,
     if (s->common.debug & VIRTIO_DEBUG_9P) {
         if (id == 6)
             printf(" (error)");
-        printf("\n");
+        printf("\r\n");
     }
 #endif
     len = buf_len + 7;
@@ -2160,6 +2177,8 @@ static void virtio_9p_open_cb(FSDevice *fs, FSQID *qid, int err,
     VIRTIO9PDevice *s = oi->dev;
     int queue_idx = oi->queue_idx;
 
+    printf("virtio_9p_open_cb");
+
     virtio_9p_open_reply(fs, qid, err, oi);
 
     s->req_in_progress = FALSE;
@@ -2203,9 +2222,9 @@ static int virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
         name = get_9p_op_name(id);
         printf("9p: op=");
         if (name)
-            printf("%s", name);
+            printf("%s\r\n", name);
         else
-            printf("%d", id);
+            printf("%d\r\n", id);
     }
 #endif
     /* Note: same subset as JOR1K */
@@ -2589,7 +2608,7 @@ static int virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
                            "ws", &msize, &version))
                 goto protocol_error;
             s->msize = msize;
-            //            printf("version: msize=%d version=%s\n", msize, version);
+            //            printf("version: msize=%d version=%s\r\n", msize, version);
             free(version);
             buf_len = marshall(s, buf, sizeof(buf), "ws", s->msize, "9P2000.L");
             virtio_9p_send_reply(s, queue_idx, desc_idx, id, tag, buf, buf_len);
@@ -2737,7 +2756,7 @@ static int virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
         }
         break;
     default:
-        printf("9p: unsupported operation id=%d\n", id);
+        printf("9p: unsupported operation id=%d\r\n", id);
         goto protocol_error;
     }
     return 0;
@@ -2784,6 +2803,7 @@ static pthread_t pending_notify_thread;
 
 static void async_queue_notify(VIRTIODevice *s, int queue_idx)
 {
+    printf("async_queue_notify\r\n");
     atomic_fetch_or_explicit(&s->pending_queue_notify, 1 << queue_idx, memory_order_release);
     pthread_mutex_lock(&pending_notify_lock);
     pending_notify = 1;
@@ -2801,10 +2821,12 @@ static void *pending_notify_worker(void *opaque)
     struct PendingNotifyWorkerData *data = opaque;
     int n = data->n;
     VIRTIODevice **ps = data->ps;
+    printf("pending_notify_worker 1\r\n");
     for (;;) {
         pthread_mutex_lock(&pending_notify_lock);
         while (!pending_notify)
             pthread_cond_wait(&pending_notify_cond, &pending_notify_lock);
+        printf("pending_notify_worker 2\r\n");
         if (pending_notify_stop) {
             pending_notify_stop = 0;
             pthread_mutex_unlock(&pending_notify_lock);
@@ -2812,10 +2834,12 @@ static void *pending_notify_worker(void *opaque)
             free(data);
             return NULL;
         }
+        printf("pending_notify_worker 3\r\n");
         /* clear now; caller expected to perform them */
         pending_notify = 0;
         pthread_mutex_unlock(&pending_notify_lock);
         for (int i = 0; i < n; i++) {
+            printf("pending_notify_worker 4 device: %d\r\n", i);
             VIRTIODevice *s = ps[i];
             /*
              * We must clear the bits before we process them otherwise we would
@@ -2836,6 +2860,7 @@ static void *pending_notify_worker(void *opaque)
 
 void virtio_start_pending_notify_thread(int n, VIRTIODevice **ps)
 {
+    printf("virtio_start_pending_notify_thread\r\n");
     struct PendingNotifyWorkerData *data = malloc(sizeof(*data));
     struct VIRTIODevice **ps_copy = malloc(n * sizeof(*ps_copy));
     memcpy(ps_copy, ps, n * sizeof(*ps_copy));
@@ -2847,6 +2872,7 @@ void virtio_start_pending_notify_thread(int n, VIRTIODevice **ps)
 
 void virtio_stop_pending_notify_thread(void)
 {
+    printf("virtio_stop_pending_notify_thread\r\n");
     pthread_mutex_lock(&pending_notify_lock);
     pending_notify = 1;
     pending_notify_stop = 1;

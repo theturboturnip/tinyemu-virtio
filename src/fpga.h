@@ -21,8 +21,7 @@
 #define VD_READ_DATA_HI  0x0044
 #define VD_WRITE_ADDR 0x1000
 #define VD_WRITE_BYEN 0x1008
-#define VD_WRITE_DATA_LO 0x1040
-#define VD_WRITE_DATA_HI 0x1040
+#define VD_WRITE_DATA 0x1040
 #define VD_SEND_RESP  0x2000
 #define VD_REQ_ID     0x2004
 #define VD_IS_WRITE   0x2006
@@ -66,13 +65,6 @@ class FPGA {
     uint64_t sifive_test_addr;
     uint64_t htif_enabled;
     uint64_t uart_enabled;
-    //int pcis_dma_fd;
-    uint8_t *dram_mapping;
-    size_t dram_mapping_size;
-    //int xdma_c2h_fd;
-    //int xdma_h2c_fd;
-    int mmio_fd;// Just use this for "device access"?
-    int dma_fd; // Just use this for DMA?
     int exit_code;
 
     std::mutex misc_request_mutex;
@@ -92,20 +84,19 @@ public:
 
     void wait_misc_response();
 
-    void map_pcis_dma();
-    void unmap_pcis_dma();
+    //void map_pcis_dma();
+    //void unmap_pcis_dma();
     void open_dma();
     void close_dma();
-    void ddr_read(uint32_t addr, uint8_t * data);
-    void ddr_write(uint32_t addr, const uint8_t * data, uint64_t wstrb = 0xFFFFFFFFFFFFFFFFul);
-    void ddr_write(uint32_t start_addr, const uint32_t *data, size_t num_bytes);
-
-    void write(uint32_t addr, uint8_t *data, size_t num_bytes);
+    //void ddr_read(uint32_t addr, uint8_t * data);
+    //void ddr_write(uint32_t addr, const uint8_t * data, uint64_t wstrb = 0xFFFFFFFFFFFFFFFFul);
+    //void ddr_write(uint32_t start_addr, const uint32_t *data, size_t num_bytes);
+    void dma_read(uint32_t addr, uint8_t * data, size_t num_bytes);
+    void dma_write(uint32_t addr, uint8_t *data, size_t num_bytes);
 
     void irq_set_levels(uint32_t w1s);
     void irq_clear_levels(uint32_t w1c);
     int read_irq_status ();
-    void set_dram_buffer(uint8_t *buf);
 
     void enqueue_stdin(char *buf, size_t num_chars);
     int dequeue_stdin(uint8_t *chp);
