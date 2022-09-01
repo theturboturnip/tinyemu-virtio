@@ -23,74 +23,6 @@ private:
     FPGA *fpga;
     int mmio_fd;
     int dma_fd;
-    uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
-    {
-        struct fmem_request req;
-        int error;
-        // Sanitise to a 32-bit access, as something in the chain
-        // only supports 32-bit currently.
-        uint32_t adr_mask = ((-1)<<2);
-        req.offset = offset & adr_mask;
-        req.access_width = 4;
-
-        error = ioctl(fd, FMEM_READ, &req);
-        if (error == 0){
-            uint32_t wide = req.data;
-            // These next two lines could be simpler, but shifting by >=32 is undefined.
-            uint32_t dat_mask = -1;
-            if (width == 1) dat_mask = 0xFF;
-            if (width == 2) dat_mask = 0xFFFF;
-            printf("read! req.data: %x, adr_mask: %x, dat_mask: %x \r\n", req.data, adr_mask, dat_mask);
-            return ((wide >> ((offset & ~adr_mask)*8)) & dat_mask);
-        } else return (0);
-    }
-    uint8_t fmem_read8(int fd, uint32_t offset)
-    {
-        return fmem_read(fd, offset, 1);
-    }
-    uint16_t fmem_read16(int fd, uint32_t offset)
-    {
-        return fmem_read(fd, offset, 2);
-    }
-    uint32_t fmem_read32(int fd, uint32_t offset)
-    {
-        return fmem_read(fd, offset, 4);
-    }
-    uint64_t fmem_read64(int fd, uint32_t offset)
-    {
-        uint64_t hi = fmem_read32(fd, offset+4);
-        return (hi<<32) | fmem_read32(fd, offset);
-    }
-    uint64_t fmem_write(int fd, uint32_t offset, uint32_t data, uint8_t width)
-    {
-        struct fmem_request req;
-        int error;
-
-        req.offset = offset;
-        req.data = data;
-        req.access_width = width;
-
-        error = ioctl(mmio_fd, FMEM_WRITE, &req);
-        return (error);
-    }
-    uint64_t fmem_write8(int fd, uint32_t offset, uint8_t data)
-    {
-        return fmem_write(fd, offset, data, 1);
-    }
-    uint64_t fmem_write16(int fd, uint32_t offset, uint16_t data)
-    {
-        return fmem_write(fd, offset, data, 2);
-    }
-    uint64_t fmem_write32(int fd, uint32_t offset, uint32_t data)
-    {
-        return fmem_write(fd, offset, data, 4);
-    }
-    uint64_t fmem_write64(int fd, uint32_t offset, uint64_t data)
-    {
-        int error = fmem_write32(fd, offset, data);
-        if (error) return error;
-        return (fmem_write32(fd, offset+4, data>>32));
-    }
 public:
     FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1), dma_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
         // Initialise Memory-mapped IO
@@ -125,6 +57,7 @@ public:
         return (fmem_read8(mmio_fd, VD_REQ_LEVEL) != 0);
     }
     //void close_dma();
+    int get_dma_fd() { return dma_fd; }
     uint8_t dma_read8(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
     void emulated_mmio_respond();
@@ -290,6 +223,7 @@ FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
 {
     sem_init(&sem_misc_response, 0, 0);
     io = new FPGA_io(id, this);
+    virtio_devices.set_virtio_dma_fd(io->get_dma_fd());
     set_htif_base_addr(0x10001000);
 }
 

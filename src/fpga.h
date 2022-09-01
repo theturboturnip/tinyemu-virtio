@@ -48,8 +48,8 @@ struct virtual_device_request {
 };
 
 class DmaManager;
-
 class FPGA_io;
+
 class FPGA {
     sem_t sem_misc_response;
     FPGA_io *io;
@@ -88,9 +88,6 @@ public:
     //void unmap_pcis_dma();
     void open_dma();
     void close_dma();
-    //void ddr_read(uint32_t addr, uint8_t * data);
-    //void ddr_write(uint32_t addr, const uint8_t * data, uint64_t wstrb = 0xFFFFFFFFFFFFFFFFul);
-    //void ddr_write(uint32_t start_addr, const uint32_t *data, size_t num_bytes);
     void dma_read(uint32_t addr, uint8_t * data, size_t num_bytes);
     void dma_write(uint32_t addr, uint8_t *data, size_t num_bytes);
 

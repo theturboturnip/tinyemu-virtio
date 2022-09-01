@@ -50,6 +50,7 @@ static inline ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
 #include "cutils.h"
 #include "list.h"
 #include "virtio.h"
+#include "fmem.h"
 
 #define DEBUG_VIRTIO
 
@@ -241,13 +242,11 @@ static void virtio_pci_bar_set(void *opaque, int bar_num,
     phys_mem_set_addr(s->mem_range, addr, enabled);
 }
 
-static int xdma_c2h_fd = -1;
-static int xdma_h2c_fd = -1;
+static int virtio_dma_fd = -1;
 
-void virtio_xdma_init(int c2h_fd, int h2c_fd)
+void virtio_dma_init(int dma_fd)
 {
-    xdma_c2h_fd = c2h_fd;
-    xdma_h2c_fd = h2c_fd;
+    virtio_dma_fd = dma_fd;
 }
 
 static void virtio_init(VIRTIODevice *s, VIRTIOBusDef *bus,
@@ -338,124 +337,67 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr, const 
 
 static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
 {
-    printf("virtio_read16 phys_addr: %lx xdma_ch2h_fd: %x \r\n", addr, xdma_c2h_fd);
-    if (xdma_c2h_fd == -1) {
-        uint8_t *ptr;
-        if (addr & 1)
-            return 0; /* unaligned access are not supported */
-
-        ptr = s->get_ram_ptr(s, addr, FALSE);
-        printf("virtio_read16 phys_addr: get_ram_ptr: %p \r\n", ptr);
-
-        if (!ptr)
-            return 0;
-        return *(uint16_t *)ptr;
+    addr -= FMEM_HOST_CACHED_MEM_BASE;
+    if (virtio_dma_fd > 0) {
+        uint16_t ret = fmem_read16(virtio_dma_fd, addr);
+        printf("virtio_read16 phys_addr: %lx ret: %x dma_fd: %x \r\n", addr, ret, virtio_dma_fd);
+        return ret;
     } else {
-        uint16_t val;
-        virtio_memcpy_from_ram(s, (uint8_t *)&val, addr, sizeof(val));
-        return val;
+        printf("virtio_read16 bad dma_fd: %x \r\n", virtio_dma_fd);
+        abort();
     }
 }
 
 static void virtio_write16(VIRTIODevice *s, virtio_phys_addr_t addr,
                            uint16_t val)
 {
-    if (xdma_h2c_fd == -1) {
-        uint8_t *ptr;
-        if (addr & 1)
-            return; /* unaligned access are not supported */
-        ptr = s->get_ram_ptr(s, addr, TRUE);
-        if (!ptr)
-            return;
-        *(uint16_t *)ptr = val;
+    addr -= FMEM_HOST_CACHED_MEM_BASE;
+    if (virtio_dma_fd > 0) {
+        printf("virtio_write16 phys_addr: %lx val: %x dma_fd: %x \r\n", addr, val, virtio_dma_fd);
+        fmem_write16(virtio_dma_fd, addr, val);
     } else {
-        virtio_memcpy_to_ram(s, addr, (uint8_t *)&val, sizeof(val));
+        printf("virtio_write16 bad dma_fd: %x \r\n", virtio_dma_fd);
+        abort();
     }
 }
 
 static void virtio_write32(VIRTIODevice *s, virtio_phys_addr_t addr,
                            uint32_t val)
 {
-    if (xdma_h2c_fd == -1) {
-        uint8_t *ptr;
-        if (addr & 3)
-            return; /* unaligned access are not supported */
-        ptr = s->get_ram_ptr(s, addr, TRUE);
-        if (!ptr)
-            return;
-        *(uint32_t *)ptr = val;
+    addr -= FMEM_HOST_CACHED_MEM_BASE;
+    if (virtio_dma_fd > 0) {
+        printf("virtio_write32 phys_addr: %lx val: %x dma_fd: %x \r\n", addr, val, virtio_dma_fd);
+        fmem_write32(virtio_dma_fd, addr, val);
     } else {
-        virtio_memcpy_to_ram(s, addr, (uint8_t *)&val, sizeof(val));
+        printf("virtio_write32 bad dma_fd: %x \r\n", virtio_dma_fd);
+        abort();
     }
 }
 
 static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
                                   virtio_phys_addr_t addr, int count)
 {
-    if (xdma_c2h_fd == -1) {
-        uint8_t *ptr;
-        int l;
-
-        while (count > 0) {
-            l = min_int(count, VIRTIO_PAGE_SIZE - (addr & (VIRTIO_PAGE_SIZE - 1)));
-            ptr = s->get_ram_ptr(s, addr, FALSE);
-            if (!ptr)
-                return -1;
-            printf("virtio_memcpy_from_ram from %p to %p, length %d \r\n", buf, ptr, l);
-            memcpy(buf, ptr, l);
-            addr += l;
-            buf += l;
-            count -= l;
-        }
+    if (virtio_dma_fd > 0) {
+        for (int i=0; i<count; i++) buf[i] = fmem_read8(virtio_dma_fd, addr+i);
+        printf("virtio_memcpy_from_ram phys_addr: %lx buf[0]: %x count: %d dma_fd: %x \r\n", addr, buf[0], count, virtio_dma_fd);
         return 0;
     } else {
-        int ret;
-
-retry:
-        ret = pread(xdma_c2h_fd, buf, count, addr);
-        if (ret < 0) {
-            // ERESTARTSYS (512) is currently leaked to userspace
-            if (errno == EINTR || errno == 512)
-                goto retry;
-            else
-                abort();
-        }
-        return 0;
+        printf("virtio_memcpy_from_ram bad dma_fd: %x \r\n", virtio_dma_fd);
+        abort();
     }
-
 }
 
 static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr,
                                 const uint8_t *buf, int count)
 {
-    if (xdma_h2c_fd == -1) {
-        uint8_t *ptr;
-        int l;
-
-        while (count > 0) {
-            l = min_int(count, VIRTIO_PAGE_SIZE - (addr & (VIRTIO_PAGE_SIZE - 1)));
-            ptr = s->get_ram_ptr(s, addr, TRUE);
-            if (!ptr)
-                return -1;
-            memcpy(ptr, buf, l);
-            addr += l;
-            buf += l;
-            count -= l;
-        }
+    addr -= FMEM_HOST_CACHED_MEM_BASE;
+    if (virtio_dma_fd > 0) {
+        printf("virtio_memcpy_to_ram phys_addr: %lx buf[0]: %x count: %d dma_fd: %x \r\n", addr, buf[0], count, virtio_dma_fd);
+        for (int i=0; i<count; i++) fmem_write8(virtio_dma_fd, addr+i, buf[i]);
         return 0;
     } else {
-        int ret;
-
-retry:
-        ret = pwrite(xdma_h2c_fd, buf, count, addr);
-        if (ret < 0) {
-            // ERESTARTSYS (512) is currently leaked to userspace
-            if (errno == EINTR || errno == 512)
-                goto retry;
-            else
-                abort();
-        }
-        return 0;
+        printf("virtio_memcpy_to_ram bad dma_fd: %x \r\n", virtio_dma_fd);
+        abort();
     }
 }
 

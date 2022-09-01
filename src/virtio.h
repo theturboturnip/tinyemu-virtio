@@ -64,6 +64,8 @@ void virtio_stop_pending_notify_thread(void);
 void virtio_join_pending_notify_thread(void);
 void virtio_reset(VIRTIODevice *s);
 
+void virtio_dma_init(int dma_fd);
+
 /* block device */
 
 typedef void BlockDeviceCompletionFunc(void *opaque, int ret);

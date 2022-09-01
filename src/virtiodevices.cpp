@@ -105,6 +105,11 @@ void VirtioDevices::set_virtio_stdin_fd(int fd)
     console->opaque = (void *)(intptr_t)fd;
 }
 
+void VirtioDevices::set_virtio_dma_fd(int fd)
+{
+    virtio_dma_init(fd);
+}
+
 bool VirtioDevices::has_virtio_console_device()
 {
     return virtio_console != nullptr;
