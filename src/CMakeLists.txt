@@ -10,6 +10,12 @@ set(CMAKE_C_FLAGS "-D_GNU_SOURCE -DCONFIG_VERSION=\"2019-12-21\" ${CMAKE_C_FLAGS
 set(CMAKE_C_FLAGS "-DCONFIG_SLIRP ${CMAKE_C_FLAGS}")
 set(CMAKE_C_FLAGS "-DCONFIG_RISCV_MAX_XLEN=64 -DMAX_XLEN=64 ${CMAKE_C_FLAGS}")
 
+if (EXISTS "/usr/bin/curl-config")
+set(CMAKE_C_FLAGS "-DCONFIG_FS_NET ${CMAKE_C_FLAGS}")
+set(FS_NET_SOURCES block_net.c fs_net.c fs_wget.c fs_wget.h)
+set(FS_NET_LIBRARIES -lcurl -lssl -lcrypto)
+endif()
+
 set(TINYEMU_SOURCES
   slirp/bootp.c
   slirp/bootp.h
