@@ -377,9 +377,12 @@ static void virtio_write32(VIRTIODevice *s, virtio_phys_addr_t addr,
 static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
                                   virtio_phys_addr_t addr, int count)
 {
+    addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
         for (int i=0; i<count; i++) buf[i] = fmem_read8(virtio_dma_fd, addr+i);
-        printf("virtio_memcpy_from_ram phys_addr: %lx buf[0]: %x count: %d dma_fd: %x \r\n", addr, buf[0], count, virtio_dma_fd);
+        printf("virtio_memcpy_from_ram phys_addr: %lx ", addr);
+        for (int i=0; i<count; i++) printf("buf[%d]: %x ", i, buf[i]);
+        printf("count: %d dma_fd: %x \r\n", count, virtio_dma_fd);
         return 0;
     } else {
         printf("virtio_memcpy_from_ram bad dma_fd: %x \r\n", virtio_dma_fd);
@@ -417,7 +420,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
     VIRTIODesc desc;
     int l, f_write_flag;
     
-    printf("memcpy_to_from_queue! buf: %p, offset: %x, count: %x, to_queue: %d", buf, offset, count, to_queue);
+    printf("memcpy_to_from_queue! buf: %p, offset: %x, count: %x, to_queue: %d \r\n", buf, offset, count, to_queue);
 
     if (count == 0)
         return 0;
