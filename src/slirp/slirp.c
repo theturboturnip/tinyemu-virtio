@@ -222,6 +222,10 @@ Slirp *slirp_init(int restricted, struct in_addr vnetwork,
 
     slirp->opaque = opaque;
 
+    //struct in_addr hostaddr = { .s_addr = htonl(0x7f000001)};
+    //slirp_add_hostfwd(slirp, FALSE, hostaddr,
+    //                  5556, vhost, 23);
+
     return slirp;
 }
 
