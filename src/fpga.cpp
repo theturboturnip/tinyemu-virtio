@@ -43,7 +43,7 @@ public:
         if (fmemdev) {
             strncpy(filename, fmemdev, 255);
         } else {
-            strncpy(filename, "/dev/fmem_sys0_dma", 255);
+            strncpy(filename, "/dev/fmem_h2f_dflt_1G", 255);
         }
         filename[255] = '\0';
         dma_fd = open(filename, O_RDWR);
