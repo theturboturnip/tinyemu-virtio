@@ -1,19 +1,15 @@
+This is bits of the original ReadMe for TinyEMU.
+I've removed the parts that refer to functionality
+that has been intentionally removed in this repository,
+and left content that might remain to some degree.
+
 TinyEMU System Emulator by Fabrice Bellard
 ==========================================
 
 1) Features
 -----------
 
-- RISC-V system emulator supporting the RV128IMAFDQC base ISA (user
-  level ISA version 2.2, priviledged architecture version 1.10)
-  including:
-
-  - 32/64/128 bit integer registers
-  - 32/64/128 bit floating point instructions
-  - Compressed instructions
-  - dynamic XLEN change
-
-- x86 system emulator based on KVM
+...
 
 - VirtIO console, network, block device, input and 9P filesystem
 
@@ -25,7 +21,7 @@ TinyEMU System Emulator by Fabrice Bellard
 
 - small code, easy to modify, no external dependancies
 
-- Javascript demo version
+...
 
 2) Installation
 ---------------
@@ -38,9 +34,7 @@ TinyEMU System Emulator by Fabrice Bellard
   It is possible to compile the programs without these libraries by
   commenting CONFIG_FS_NET and/or CONFIG_SDL in the Makefile.
 
-- Edit the Makefile to disable the 128 bit target if you compile on a
-  32 bit host (for the 128 bit RISCV target the compiler must support
-  the __int128 C extension).
+...
 
 - Use 'make' to compile the binaries.
 
@@ -51,37 +45,7 @@ TinyEMU System Emulator by Fabrice Bellard
 3) Usage
 --------
 
-3.1 Quick examples
-------------------
-
-- Use the VM images available from https://bellard.org/jslinux (no
-  need to download them):
-
-  Terminal:
-
-  ./temu https://bellard.org/jslinux/buildroot-riscv64.cfg
-
-  Graphical (with SDL):
-
-  ./temu https://bellard.org/jslinux/buildroot-x86-xwin.cfg
-
-  ./temu https://bellard.org/jslinux/win2k.cfg
-
-- Download the example RISC-V Linux image
-  (diskimage-linux-riscv-yyyy-mm-dd.tar.gz) and use it:
-
-  ./temu root-riscv64.cfg
-
-  ./temu rv128test/rv128test.cfg
-
-- Access to your local hard disk (/tmp directory) in the guest:
-
-  ./temu root_9p-riscv64.cfg
-
-then type:
-mount -t 9p /dev/root /mnt
-
-in the guest. The content of the host '/tmp' directory is visible in '/mnt'.
+...
 
 3.2 Invocation
 --------------
@@ -146,21 +110,7 @@ the JSON blk.txt file must be provided as disk image filename.
 4) Technical notes
 ------------------
 
-4.1) 128 bit support
-
-The RISC-V specification does not define all the instruction encodings
-for the 128 bit integer and floating point operations. The missing
-ones were interpolated from the 32 and 64 ones.
-
-Unfortunately there is no RISC-V 128 bit toolchain nor OS now
-(volunteers for the Linux port ?), so rv128test.bin may be the first
-128 bit code for RISC-V !
-
-4.2) Floating point emulation
-
-The floating point emulation is bit exact and supports all the
-specified instructions for 32, 64 and 128 bit floating point
-numbers. It uses the new SoftFP library.
+...
 
 4.3) HTIF console
 
@@ -172,27 +122,7 @@ addresses (0x40008000). A small modification was made in the
 display boot messages and to power off the virtual system. The OS
 should use the VirtIO console.
 
-4.4) Javascript version
-
-The Javascript version (JSLinux) can be compiled with Makefile.js and
-emscripten. A complete precompiled and preconfigured demo is available
-in the jslinux-yyyy-mm-dd.tar.gz archive (read the readme.txt file
-inside the archive).
-
-4.5) x86 emulator
-
-A small x86 emulator is included. It is not really an emulator because
-it uses the Linux KVM API to run the x86 code at near native
-performance. The x86 emulator uses the same set of VirtIO devices as
-the RISCV emulator and is able to run many operating systems.
-
-The x86 emulator accepts a Linux kernel image (bzImage). No BIOS image
-is necessary.
-
-The x86 emulator comes from my JS/Linux project (2011) which was one
-of the first emulator running Linux fully implemented in
-Javascript. It is provided to allow easy access to the x86 images
-hosted at https://bellard.org/jslinux .
+...
 
 
 5) License / Credits

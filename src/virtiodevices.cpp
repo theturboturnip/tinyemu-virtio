@@ -26,9 +26,9 @@ void fpga_set_irq(void *opaque, int irq_num, int level)
 {
     if (debug) fprintf(stderr, "%s: irq_num=%d level=%d\r\n", __FUNCTION__, irq_num, level);
     if (level)
-	fpga->irq_set_levels(1 << irq_num);
+      fpga->irq_set_levels(1 << irq_num);
     else
-	fpga->irq_clear_levels(1 << irq_num);
+      fpga->irq_clear_levels(1 << irq_num);
 }
 
 static void console_write_data(void *opaque, const uint8_t *buf, int buf_len)
