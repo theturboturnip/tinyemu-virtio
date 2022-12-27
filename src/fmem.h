@@ -97,7 +97,7 @@ uint64_t fmem_write(int fd, uint32_t offset, uint32_t data, uint8_t width)
     struct fmem_request req;
     int error;
 
-    uint32_t adr_mask = ((-1)<<2);
+    uint32_t adr_mask = ((0xFFFFFFFF)<<2);
     if (width != 4) {
         uint32_t old_data = fmem_read32(fd, offset);
         uint8_t shift_amt = ((offset & ~adr_mask)*8);
