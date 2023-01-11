@@ -11,7 +11,7 @@
 
 #define TOHOST_OFFSET 0
 #define FROMHOST_OFFSET 8
-#define FIRST_VIRTIO_IRQ 3
+#define FIRST_VIRTIO_IRQ 0
 
 static int debug_virtio = 1;
 static int debug_stray_io = 1;
@@ -123,7 +123,7 @@ FPGA_io::emulated_mmio_respond() {
             if (waddr & 4) {
                 wdata = (wdata >> 32) & 0xFFFFFFFF;;
             }
-            if (debug_virtio) fprintf(stderr, "virtio waddr %08x offset %x wdata %08lx wstrb %x\r\n", waddr, offset, wdata, wstrb);
+            if (debug_virtio) printf("virtio waddr %08x offset %08x wdata %08lx wstrb %02x \r\n", waddr, offset, wdata, wstrb);
             pr->write_func(pr->opaque, offset, wdata, size_log2);
         } else if (waddr == fpga->tohost_addr) {
             // tohost
@@ -136,14 +136,14 @@ FPGA_io::emulated_mmio_respond() {
                 int code;
                 if (payload == 1) {
                     code = 0;
-                    fprintf(stderr, "PASS\r\n");
+                    printf("PASS\r\n");
                 } else {
                     code = payload >> 1;
-                    fprintf(stderr, "FAIL: error %u\r\n", code);
+                    printf("FAIL: error %u\r\n", code);
                 }
                 fpga->stop_io(code);
             } else {
-                fprintf(stderr, "\r\nHTIF: dev=%d cmd=%02x payload=%08lx\r\n", dev, cmd, payload);
+                printf("\r\nHTIF: dev=%d cmd=%02x payload=%08lx\r\n", dev, cmd, payload);
             }
         } else if (waddr == fpga->fromhost_addr) {
             //fprintf(stderr, "\r\nHTIF: addr %08x wdata=%08lx\r\n", addr, wdata);
@@ -166,14 +166,14 @@ FPGA_io::emulated_mmio_respond() {
                 fprintf(stderr, "\r\nSiFive Test Finisher: status=%04x\r\n", status);
             }
         } else {
-            if (debug_stray_io) fprintf(stderr, "Stray io! waddr %08x io_wdata wdata=%lx wstrb=%x\r\n", waddr, wdata, wstrb);
+            if (debug_stray_io) printf("Stray io! waddr %08x io_wdata wdata=%lx wstrb=%x\r\n", waddr, wdata, wstrb);
         }
     } else { // must be a read request
         uint32_t araddr = fmem_read32(mmio_fd, VD_READ_ADDR);
         uint16_t arlen = 0;//fmem_read8(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
         uint16_t arid = fmem_read32(mmio_fd, VD_REQ_ID);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(araddr);
-        if (arlen != 0) fprintf(stderr, "ERROR: fromhost araddr %08x arlen %d\r\n", araddr, arlen);
+        if (arlen != 0) printf("ERROR: fromhost araddr %08x arlen %d\r\n", araddr, arlen);
         else if (pr) {
             uint32_t offset = araddr - pr->addr;
             int size_log2 = 2;
@@ -182,7 +182,7 @@ FPGA_io::emulated_mmio_respond() {
                 val = (val << 32); // Assuming a 64-bit virtualised data width.
             fmem_write64(mmio_fd, VD_READ_DATA,val);
             if (debug_virtio)
-                fprintf(stderr, "virtio araddr %0x device addr %08lx offset %08x len %d val %08lx\r\n",
+                printf("virtio araddr %0x device addr %08lx offset %08x len %d val %08lx\r\n",
                         araddr, pr->addr, offset, arlen, val);
         } else if (fpga->rom.base <= araddr && araddr < fpga->rom.limit) {
             int offset = (araddr - fpga->rom.base) / 8;

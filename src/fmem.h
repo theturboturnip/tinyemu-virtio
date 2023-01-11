@@ -54,10 +54,12 @@ uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
     int error;
     // Sanitise to a 32-bit access, as something in the chain
     // only supports 32-bit currently.
-    uint32_t adr_mask = ((0xFFFFFFFF)<<2);
+    uint32_t adr_mask = 0xFFFFFFFC;
     req.offset = offset & adr_mask;
     req.access_width = 4;
 
+    //printf("o:%x\r\n", req.offset);
+    fflush(stdout);
     error = ioctl(fd, FMEM_READ, &req);
     if (error == 0){
         uint32_t wide = req.data;
@@ -94,9 +96,8 @@ uint64_t fmem_write(int fd, uint32_t offset, uint32_t data, uint8_t width)
     req.offset = offset;
     req.data = data;
     req.access_width = width;
-
+    //printf("write! offset: %x, req.data: %x, width: %x \r\n", offset, req.data, width);
     error = ioctl(fd, FMEM_WRITE, &req);
-    printf("write! offset: %x, req.data: %x, width: %x \r\n", offset, req.data, width);
     return (error);
 }
 uint64_t fmem_write8(int fd, uint32_t offset, uint8_t data)
