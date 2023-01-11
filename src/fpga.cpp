@@ -287,7 +287,7 @@ void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
 void FPGA::irq_set_levels(uint32_t w1s)
 {
     std::lock_guard<std::mutex> lock(misc_request_mutex);
-    fmem_write32(io->get_irq_fd(), w1s, 0);
+    fmem_write32(io->get_irq_fd(), 0, w1s);
     irq_state |= w1s;
     //request->irq_set_levels(w1s);
 }
@@ -295,7 +295,7 @@ void FPGA::irq_set_levels(uint32_t w1s)
 void FPGA::irq_clear_levels(uint32_t w1c)
 {
     std::lock_guard<std::mutex> lock(misc_request_mutex);
-    fmem_write32(io->get_irq_fd(), w1c, 4);
+    fmem_write32(io->get_irq_fd(), 4, w1c);
     irq_state &= ~w1c;
     //request->irq_clear_levels(w1c);
 }
