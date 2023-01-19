@@ -62,6 +62,10 @@ public:
         }
         filename[255] = '\0';
         irq_fd = open(filename, O_RDWR);
+        if (irq_fd < 0) {
+            fprintf(stderr, "ERROR: Failed to open fmem interrupts device file: %s\r\n", strerror(errno));
+            abort();
+        }
     }
     bool emulated_mmio_has_request() {
         return (fmem_read8(mmio_fd, VD_REQ_LEVEL) != 0);
