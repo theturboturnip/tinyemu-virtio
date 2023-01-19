@@ -11,7 +11,7 @@
 
 #define TOHOST_OFFSET 0
 #define FROMHOST_OFFSET 8
-#define FIRST_VIRTIO_IRQ 1
+#define FIRST_VIRTIO_IRQ 3
 
 static int debug_virtio = 1;
 static int debug_stray_io = 1;
@@ -23,8 +23,9 @@ private:
     FPGA *fpga;
     int mmio_fd;
     int dma_fd;
+    int irq_fd;
 public:
-    FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1), dma_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
+    FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1), dma_fd(-1), irq_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
         // Initialise Memory-mapped IO
         // Open FMEM device for the management interface of the "Virtual Device",
         // a peripheral that captures reads and writes on one interface and provides
@@ -52,12 +53,22 @@ public:
             abort();
         }
         fmem_write32(mmio_fd, VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
+        // Opem IRQ fmem device
+        // This is a couple registers that allow setting and clearing interrupts for the guest.
+        fmemdev = getenv("RISCV_INTERRUPT_FMEM_DEV");
+        strncpy(filename, "/dev/fmem_sys0_interrupts", 255);
+        if (fmemdev) {
+            strncpy(filename, fmemdev, 255);
+        }
+        filename[255] = '\0';
+        irq_fd = open(filename, O_RDWR);
     }
     bool emulated_mmio_has_request() {
         return (fmem_read8(mmio_fd, VD_REQ_LEVEL) != 0);
     }
     //void close_dma();
     int get_dma_fd() { return dma_fd; }
+    int get_irq_fd() { return irq_fd; }
     uint8_t dma_read8(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
     void emulated_mmio_respond();
@@ -218,7 +229,7 @@ void FPGA_io::console_putchar(uint64_t wdata) {
 }
 
 FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
-    : io(0), rom(rom), ctrla_seen(0), sifive_test_addr(0x50000000),
+    : io(0), rom(rom), ctrla_seen(0), irq_state(0), sifive_test_addr(0x50000000),
       htif_enabled(0), uart_enabled(0), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface)
 {
     sem_init(&sem_misc_response, 0, 0);
@@ -269,14 +280,14 @@ void FPGA::close_dma()
 }
 */
 void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
-    fprintf(stderr, "DMA read? addr %08x size %ld",
+    printf("DMA read? addr %08x size %ld",
                     addr, size);
     for (int i=0; i<size; i++) data[i] = io->dma_read8(addr+i);
-    fprintf(stderr, " data[0]: %c\r\n", data[0]);
+    printf(" data[0]: %c\r\n", data[0]);
 }
 
 void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
-    fprintf(stderr, "DMA write? addr %08x size %ld data[0]: %c\r\n",
+    printf("DMA write? addr %08x size %ld data[0]: %c\r\n",
                     addr, size, data[0]);
     for (int i=0; i<size; i++) io->dma_write8(addr+i, data[i]);
 }
@@ -285,26 +296,29 @@ void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
 
 void FPGA::irq_set_levels(uint32_t w1s)
 {
-    //std::lock_guard<std::mutex> lock(misc_request_mutex);
-
+    std::lock_guard<std::mutex> lock(misc_request_mutex);
+    fmem_write32(io->get_irq_fd(), w1s, 0);
+    irq_state |= w1s;
     //request->irq_set_levels(w1s);
 }
 
 void FPGA::irq_clear_levels(uint32_t w1c)
 {
-    //std::lock_guard<std::mutex> lock(misc_request_mutex);
-
+    std::lock_guard<std::mutex> lock(misc_request_mutex);
+    fmem_write32(io->get_irq_fd(), w1c, 4);
+    irq_state &= ~w1c;
     //request->irq_clear_levels(w1c);
 }
 
 int FPGA::read_irq_status ()
 {
-    //std::lock_guard<std::mutex> lock(misc_request_mutex);
+    std::lock_guard<std::mutex> lock(misc_request_mutex);
 
     //request->read_irq_status();
     //wait_misc_response();
     //return misc_rsp_data;
-    return 0;
+    return (int)irq_state;
+    
 }
 /* ----------- XXX IRQs XXX ----------------*/
 

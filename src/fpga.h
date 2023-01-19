@@ -57,6 +57,7 @@ class FPGA {
     Rom rom;
     VirtioDevices virtio_devices;
     uint32_t misc_rsp_data;
+    uint32_t irq_state;
     //uint32_t last_addr;
     int ctrla_seen;
     uint8_t *pcis_rsp_data; // 64-bytes?
