@@ -173,32 +173,24 @@ FPGA_io::emulated_mmio_respond() {
         uint16_t arlen = 0;//fmem_read8(VD_FLIT_SIZE); // Non-0 arlen is likely to break something.
         uint16_t arid = fmem_read32(mmio_fd, VD_REQ_ID);
         PhysMemoryRange *pr = fpga->virtio_devices.get_phys_mem_range(araddr);
-        if (pr) {
+        if (arlen != 0) fprintf(stderr, "ERROR: fromhost araddr %08x arlen %d\r\n", araddr, arlen);
+        else if (pr) {
             uint32_t offset = araddr - pr->addr;
             int size_log2 = 2;
-            //for (int i = 0; i < arlen / 8; i++) {
-                int last = 1;//= i == ((arlen / 8) - 1);
-                uint64_t val = pr->read_func(pr->opaque, offset, size_log2);
-                if ((offset % 8) == 4)
-                    val = (val << 32); // Assuming a 64-bit virtualised data width.
-                fmem_write64(mmio_fd, VD_READ_DATA,val);
-                if (debug_virtio)
-                    fprintf(stderr, "virtio araddr %0x device addr %08lx offset %08x len %d val %08lx last %d\r\n",
-                            araddr, pr->addr, offset, arlen, val, last);
-                //offset += 4;
-            //}
+            uint64_t val = pr->read_func(pr->opaque, offset, size_log2);
+            if ((offset % 8) == 4)
+                val = (val << 32); // Assuming a 64-bit virtualised data width.
+            fmem_write64(mmio_fd, VD_READ_DATA,val);
+            if (debug_virtio)
+                fprintf(stderr, "virtio araddr %0x device addr %08lx offset %08x len %d val %08lx\r\n",
+                        araddr, pr->addr, offset, arlen, val);
         } else if (fpga->rom.base <= araddr && araddr < fpga->rom.limit) {
             int offset = (araddr - fpga->rom.base) / 8;
             //fprintf(stderr, "rom offset %x data %08lx\r\n", (int)(araddr - fpga->rom.base), fpga->rom.data[offset]);
-            for (int i = 0; i < arlen / 8; i++) {
-                int last = i == ((arlen / 8) - 1);
-                //fprintf(stderr, "io_rdata %08lx\r\n", fpga->rom.data[offset + i]);
-                fmem_write64(mmio_fd, VD_READ_DATA,fpga->rom.data[offset + i]);
-            }
+            fmem_write64(mmio_fd, VD_READ_DATA,fpga->rom.data[offset]);
         } else if (araddr == fpga->fromhost_addr) {
             uint8_t ch = 0;
-            if (arlen != 0)
-            fprintf(stderr, "ERROR: fromhost araddr %08x arlen %d\r\n", araddr, arlen);
+            
             if (fpga->htif_enabled && fpga->dequeue_stdin(&ch)) {
                 uint64_t cmd = (1ul << 56) | (0ul << 48) | ch;
                 fmem_write64(mmio_fd, VD_READ_DATA,cmd);
@@ -206,17 +198,11 @@ FPGA_io::emulated_mmio_respond() {
                 fmem_write64(mmio_fd, VD_READ_DATA,0);
             }
         } else if (araddr == fpga->sifive_test_addr) {
-            for (int i = 0; i < arlen / 8; i++) {
-                int last = i == ((arlen / 8) - 1);
-                fmem_write64(mmio_fd, VD_READ_DATA,0);
-            }
+            fmem_write64(mmio_fd, VD_READ_DATA,0);
         } else {
             if (araddr != 0x10001000 && araddr != 0x10001008 && araddr != 0x50001000 && araddr != 0x50001008)
                 if (debug_stray_io) fprintf(stderr, "io_araddr araddr=%08x arlen=%d\r\n", araddr, arlen);
-            for (int i = 0; i < arlen / 8; i++) {
-                int last = i == ((arlen / 8) - 1);
-                fmem_write64(mmio_fd, VD_READ_DATA,0);
-            }
+            fmem_write64(mmio_fd, VD_READ_DATA,0);
         }
     }
     fmem_write32(mmio_fd, VD_SEND_RESP, 1); // Send any response.
