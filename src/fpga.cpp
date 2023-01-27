@@ -296,8 +296,6 @@ void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
     for (int i=0; i<size; i++) io->dma_write8(addr+i, data[i]);
 }
 
-/* XXX Implement IRQs somehow.  Just stubbed out for now. */
-
 void FPGA::irq_set_levels(uint32_t w1s)
 {
     std::lock_guard<std::mutex> lock(misc_request_mutex);
