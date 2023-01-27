@@ -48,14 +48,6 @@ enum {
 
 #define FMEM_HOST_CACHED_MEM_BASE 0xc0000000
 
-
-uint32_t get_dat_mask(uint8_t width){
-    uint32_t dat_mask = -1;
-    if (width == 1) dat_mask = 0xFF;
-    if (width == 2) dat_mask = 0xFFFF;
-    return dat_mask;
-}
-
 uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
 {
     struct fmem_request req;
@@ -70,7 +62,9 @@ uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
     if (error == 0){
         uint32_t wide = req.data;
         // These next two lines could be simpler, but shifting by >=32 is undefined.
-        uint32_t dat_mask = get_dat_mask(width);
+        uint32_t dat_mask = -1;
+        if (width == 1) dat_mask = 0xFF;
+        if (width == 2) dat_mask = 0xFFFF;
         //printf("read! offset: %x, req.data: %x, adr_mask: %x, dat_mask: %x \r\n", offset, req.data, adr_mask, dat_mask);
         return ((wide >> ((offset & ~adr_mask)*8)) & dat_mask);
     } else return (0);
@@ -97,18 +91,10 @@ uint64_t fmem_write(int fd, uint32_t offset, uint32_t data, uint8_t width)
     struct fmem_request req;
     int error;
 
-    uint32_t adr_mask = ((0xFFFFFFFF)<<2);
-    if (width != 4) {
-        uint32_t old_data = fmem_read32(fd, offset);
-        uint8_t shift_amt = ((offset & ~adr_mask)*8);
-        uint32_t dat_mask = get_dat_mask(width) << shift_amt;
-        data = ((data << shift_amt) & ~dat_mask) | (old_data & ~dat_mask);
-        
-    }
-    req.offset = offset & adr_mask;
+    req.offset = offset;
     req.data = data;
-    req.access_width = 4;
-    
+    req.access_width = width;
+
     error = ioctl(fd, FMEM_WRITE, &req);
     printf("write! offset: %x, req.data: %x, width: %x \r\n", offset, req.data, width);
     return (error);
