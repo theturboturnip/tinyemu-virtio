@@ -335,16 +335,10 @@ static void virtio_init(VIRTIODevice *s, VIRTIOBusDef *bus,
 static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf, virtio_phys_addr_t addr, int count);
 static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr, const uint8_t *buf, int count);
 
-void dma_mem_bar()
-{
-	fmem_read8(virtio_dma_fd, 0);
-}
-
 static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
-	dma_mem_bar();
         uint16_t ret = fmem_read16(virtio_dma_fd, addr);
         printf("virtio_read16 phys_addr: %lx ret: %x dma_fd: %x \r\n", addr, ret, virtio_dma_fd);
         return ret;
@@ -385,7 +379,6 @@ static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
-	dma_mem_bar();
         for (int i=0; i<count; i++) buf[i] = fmem_read8(virtio_dma_fd, addr+i);
         printf("virtio_memcpy_from_ram phys_addr: %lx ", addr);
         for (int i=0; i<count; i++) printf("buf[%d]: %x ", i, buf[i]);
