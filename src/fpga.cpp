@@ -13,7 +13,7 @@
 #define FROMHOST_OFFSET 8
 #define FIRST_VIRTIO_IRQ 0
 
-static int debug_virtio = 1;
+static int debug_virtio = 0;
 static int debug_stray_io = 1;
 
 extern FPGA *fpga;

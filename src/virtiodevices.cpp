@@ -17,7 +17,7 @@ extern "C" {
 #include "virtiodevices.h"
 #include "util.h"
 
-static int debug = 2;
+static int debug = 0;
 
 extern FPGA *fpga;
 
