@@ -24,6 +24,7 @@ private:
     int mmio_fd;
     int dma_fd;
     int irq_fd;
+    int selector_fd;
 public:
     FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1), dma_fd(-1), irq_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
         // Initialise Memory-mapped IO
@@ -38,6 +39,19 @@ public:
             filename[255] = '\0';
         }
         mmio_fd = open(filename, O_RDWR);
+        // Open address window selector fmem device
+        fmemdev = getenv("RISCV_ADDRESS_SELECTOR_FMEM_DEV");
+        if (fmemdev) {
+            strncpy(filename, fmemdev, 255);
+        } else {
+            strncpy(filename, "/dev/fmem_sys0_address_selector", 255);
+        }
+        filename[255] = '\0';
+        selector_fd = open(filename, O_RDWR);
+        if (selector_fd < 0) {
+            fprintf(stderr, "ERROR: Failed to open address selector device file: %s\r\n", strerror(errno));
+            abort();
+        }
         // Open DMA fmem file descriptor.
         // This one allows access to coherent shared memory with the guest.
         fmemdev = getenv("RISCV_DMA_FMEM_DEV");
@@ -73,6 +87,7 @@ public:
     //void close_dma();
     int get_dma_fd() { return dma_fd; }
     int get_irq_fd() { return irq_fd; }
+    void dma_set_window(uint64_t addr);
     uint8_t dma_read8(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
     void emulated_mmio_respond();
@@ -86,7 +101,33 @@ void FPGA_io::close_dma()
         close(dma_fd);
 }
 */
+
+#define MEM_MASK_1GB 0x3FFFFFFF
+uint64_t last_offset;
+void FPGA_io::dma_set_window(uint64_t addr) {
+    uint64_t offset = addr & (~MEM_MASK_1GB);
+    if (offset != last_offset) {
+        if (selector_fd >= 0) {
+            printf("writing address selector (write) 0x0 == 0x%" PRIx64 "\n",
+                    offset);
+            int error = fmem_write(0, 4, (uint32_t)offset, selector_fd);
+            if (error != 0) {
+                printf("error with address selector (write) 0x0 == 0x%" PRIx64 "\n",
+                       offset);
+            }
+            // Only support 32-bit address space for the moment.  Unclear if the top-half of the selector is supported, actually...
+            //error = fmem_write(4, 4, (uint32_t)(offset>>32), address_selector_fd);
+            last_offset = offset;
+        }
+        else {
+            fprintf(stderr, "ERROR: Attempted write unusable fmem address selector device file: %s\r\n", strerror(errno));
+            abort();
+        };
+    }
+}
+
 uint8_t FPGA_io::dma_read8(uint64_t raddr) {
+    dma_set_window(raddr);
     if (dma_fd >= 0) return fmem_read8(dma_fd, raddr);
     else {
         fprintf(stderr, "ERROR: Attempted read from unusable fmem dma device file: %s\r\n", strerror(errno));
@@ -95,6 +136,7 @@ uint8_t FPGA_io::dma_read8(uint64_t raddr) {
 }
 
 void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
+    dma_set_window(waddr);
     if (dma_fd >= 0) fmem_write8(dma_fd, waddr, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
@@ -269,6 +311,7 @@ void FPGA::close_dma()
     io->close_dma();
 }
 */
+
 void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
     printf("DMA read? addr %08x size %ld",
                     addr, size);
