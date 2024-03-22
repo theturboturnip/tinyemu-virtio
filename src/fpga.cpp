@@ -89,7 +89,9 @@ public:
     int get_irq_fd() { return irq_fd; }
     void dma_set_window(uint64_t addr);
     uint8_t dma_read8(uint64_t raddr);
+    uint32_t dma_read32(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
+    void dma_write32(uint64_t waddr, uint32_t wdata);
     void emulated_mmio_respond();
     void console_putchar(uint64_t wdata);
     virtual void uart_tohost(uint8_t ch);
@@ -135,9 +137,27 @@ uint8_t FPGA_io::dma_read8(uint64_t raddr) {
     };
 }
 
+uint32_t FPGA_io::dma_read32(uint64_t raddr) {
+    dma_set_window(raddr);
+    if (dma_fd >= 0) return fmem_read32(dma_fd, raddr);
+    else {
+        fprintf(stderr, "ERROR: Attempted read from unusable fmem dma device file: %s\r\n", strerror(errno));
+        abort();
+    };
+}
+
 void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
     dma_set_window(waddr);
     if (dma_fd >= 0) fmem_write8(dma_fd, waddr, wdata);
+    else {
+        fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
+        abort();
+    };
+}
+
+void FPGA_io::dma_write32(uint64_t waddr, uint32_t wdata) {
+    dma_set_window(waddr);
+    if (dma_fd >= 0) fmem_write32(dma_fd, waddr, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -315,6 +335,14 @@ void FPGA::close_dma()
 void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
     printf("DMA read? addr %08x size %ld",
                     addr, size);
+    int i=0;
+    if (addr&3 == 0) {
+        for (; i<size; i+=4) {
+            ((uint32_t *)(data+i))[0] = io->dma_read32(addr+i);
+        }
+        i -= 4; // undo add that pushed us over so the byte loop
+                // can clean up
+    }
     for (int i=0; i<size; i++) data[i] = io->dma_read8(addr+i);
     printf(" data[0]: %c\r\n", data[0]);
 }
@@ -322,6 +350,14 @@ void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
 void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
     printf("DMA write? addr %08x size %ld data[0]: %c\r\n",
                     addr, size, data[0]);
+    int i=0;
+    if (addr&3 == 0) {
+        for (; i<size; i+=4) {
+            io->dma_write32(addr+i, ((uint32_t *)(data+i))[0]);
+        }
+        i -= 4; // undo add that pushed us over so the byte loop
+                // can clean up
+    }
     for (int i=0; i<size; i++) io->dma_write8(addr+i, data[i]);
 }
 
