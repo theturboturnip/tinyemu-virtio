@@ -19,8 +19,6 @@ extern "C" {
 
 static int debug = 0;
 
-extern FPGA *fpga;
-
 
 void fpga_set_irq(void *opaque, int irq_num, int level)
 {
@@ -124,6 +122,7 @@ void VirtioDevices::set_virtio_stdin_fd(int fd)
     console->opaque = (void *)(intptr_t)fd;
 }
 
+// TODO replace this with set_virtio_dma_iface which takes function pointers for fpga_singleton_dma_{read,write}
 void VirtioDevices::set_virtio_dma_fd(int fd)
 {
     virtio_dma_init(fd);

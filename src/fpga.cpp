@@ -16,17 +16,33 @@
 static int debug_virtio = 0;
 static int debug_stray_io = 1;
 
-extern FPGA *fpga;
+// Assign the initial value of the FPGA singleton to null.
+FPGA *fpga = NULL;
+// This function is responsible for setting up the FPGA singleton
+void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface) {
+    if (fpga != NULL) {
+        fprintf(stderr, "ERROR: Called init_fpga_singleton() multiple times\r\n");
+        abort();
+    }
+    fpga = new FPGA(id, rom, tun_iface);
+}
+// Call dma_read on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
+void fpga_singleton_dma_read(uint32_t addr, uint8_t * data, size_t num_bytes) {
+    fpga->dma_read(addr, data, num_bytes);
+}
+// Call dma_write on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
+void fpga_singleton_dma_write(uint32_t addr, uint8_t *data, size_t num_bytes) {
+    fpga->dma_write(addr, data, num_bytes);
+}
 
 class FPGA_io {
 private:
-    FPGA *fpga;
     int mmio_fd;
     int dma_fd;
     int irq_fd;
     int selector_fd;
 public:
-    FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1), dma_fd(-1), irq_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
+    FPGA_io(int id) : mmio_fd(-1), dma_fd(-1), irq_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
         // Initialise Memory-mapped IO
         // Open FMEM device for the management interface of the "Virtual Device",
         // a peripheral that captures reads and writes on one interface and provides
@@ -285,7 +301,7 @@ FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
       htif_enabled(0), uart_enabled(0), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface)
 {
     sem_init(&sem_misc_response, 0, 0);
-    io = new FPGA_io(id, this);
+    io = new FPGA_io(id);
     virtio_devices.set_virtio_dma_fd(io->get_dma_fd());
     set_htif_base_addr(0x10001000);
 }
@@ -493,9 +509,9 @@ void FPGA::process_stdin()
     }
 }
 
-void *FPGA::process_stdin_thread(void *opaque)
+void *FPGA::process_stdin_thread(void *null_arg)
 {
-    ((FPGA *)opaque)->process_stdin();
+    fpga->process_stdin();
     return NULL;
 }
 
@@ -527,7 +543,7 @@ void FPGA::start_io()
 
     pipe(stop_stdin_pipe);
     fcntl(stop_stdin_pipe[1], F_SETFL, O_NONBLOCK);
-    pthread_create(&stdin_thread, NULL, &process_stdin_thread, this);
+    pthread_create(&stdin_thread, NULL, &process_stdin_thread, NULL);
     pthread_setname_np(stdin_thread, "Console input");
 
     if (virtio_devices.has_virtio_console_device()) {
