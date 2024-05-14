@@ -59,8 +59,6 @@ void usage(const char *name)
     }
 }
 
-FPGA *fpga;
-
 int main(int argc, char * const *argv)
 {
     const char *bootrom_filename = 0;
@@ -174,7 +172,9 @@ int main(int argc, char * const *argv)
     debugLog("romBuffer=%lx\r\n", (long)romBuffer);
 
     Rom rom = { BOOTROM_BASE, BOOTROM_LIMIT, (uint64_t *)romBuffer };
-    fpga = new FPGA(1, rom, tun_iface); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
+
+    // Initialize the FPGA singleton before we use it
+    fpga_singleton_init(1, rom, tun_iface); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
     fpga->set_uart_enabled(uart_enabled);
 
     for (std::string block_file: block_files) {
