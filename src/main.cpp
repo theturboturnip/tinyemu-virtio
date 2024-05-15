@@ -161,12 +161,16 @@ int main(int argc, char * const *argv)
     while (optind < argc) {
         elf_files.push_back(argv[optind++]);
     }
-    if (!bootrom_filename && !elf_files.size()) {
-        usage(argv[0]);
-        return -1;
-    }
+    // A vestige from a previous time: bootrom_filename and elf_files are not used for the rest of this program.
+    // if (!bootrom_filename && !elf_files.size()) {
+    //     usage(argv[0]);
+    //     return -1;
+    // }
 
     // allocate a memory object for Rom
+    // Samuel note: This is also unused/uninitialized.
+    // Rom is mapped into some of the MMIO memory space (see FPGA::emulated_mmio_respond)
+    // and effectively leaks uninitialized memory to the consumer MMIO.
     size_t rom_alloc_sz = 1024*1024;
     uint8_t *romBuffer = (uint8_t *)malloc(rom_alloc_sz);
     debugLog("romBuffer=%lx\r\n", (long)romBuffer);
