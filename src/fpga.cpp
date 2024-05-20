@@ -26,12 +26,14 @@ void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface) {
     }
     fpga = new FPGA(id, rom, tun_iface);
 }
-// Call dma_read on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
+// Call dma_read on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
+// Can be passed to C interfaces as a plain function pointer.
 void fpga_singleton_dma_read(uint32_t addr, uint8_t * data, size_t num_bytes) {
     fpga->dma_read(addr, data, num_bytes);
 }
-// Call dma_write on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
-void fpga_singleton_dma_write(uint32_t addr, uint8_t *data, size_t num_bytes) {
+// Call dma_write on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
+// Can be passed to C interfaces as a plain function pointer.
+void fpga_singleton_dma_write(uint32_t addr, const uint8_t * data, size_t num_bytes) {
     fpga->dma_write(addr, data, num_bytes);
 }
 
@@ -103,11 +105,15 @@ public:
     //void close_dma();
     int get_dma_fd() { return dma_fd; }
     int get_irq_fd() { return irq_fd; }
+    /*
+    dma_set_window, dma_read8, dma_read32, dma_write8, dma_write32 all assume the dma_mutex have been taken before calling them.
+    */
     void dma_set_window(uint64_t addr);
     uint8_t dma_read8(uint64_t raddr);
     uint32_t dma_read32(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
     void dma_write32(uint64_t waddr, uint32_t wdata);
+
     void emulated_mmio_respond();
     void console_putchar(uint64_t wdata);
     virtual void uart_tohost(uint8_t ch);
@@ -123,6 +129,7 @@ void FPGA_io::close_dma()
 #define MEM_MASK_1GB 0x3FFFFFFF
 uint64_t last_offset;
 void FPGA_io::dma_set_window(uint64_t addr) {
+    // Assuming DMA mutex has been taken
     uint64_t offset = addr & (~MEM_MASK_1GB);
     if (offset != last_offset) {
         if (selector_fd >= 0) {
@@ -145,6 +152,7 @@ void FPGA_io::dma_set_window(uint64_t addr) {
 }
 
 uint8_t FPGA_io::dma_read8(uint64_t raddr) {
+    // Assuming DMA mutex has been taken
     dma_set_window(raddr);
     if (dma_fd >= 0) return fmem_read8(dma_fd, raddr);
     else {
@@ -154,6 +162,7 @@ uint8_t FPGA_io::dma_read8(uint64_t raddr) {
 }
 
 uint32_t FPGA_io::dma_read32(uint64_t raddr) {
+    // Assuming DMA mutex has been taken
     dma_set_window(raddr);
     if (dma_fd >= 0) return fmem_read32(dma_fd, raddr);
     else {
@@ -163,6 +172,7 @@ uint32_t FPGA_io::dma_read32(uint64_t raddr) {
 }
 
 void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
+    // Assuming DMA mutex has been taken
     dma_set_window(waddr);
     if (dma_fd >= 0) fmem_write8(dma_fd, waddr, wdata);
     else {
@@ -172,6 +182,7 @@ void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
 }
 
 void FPGA_io::dma_write32(uint64_t waddr, uint32_t wdata) {
+    // Assuming DMA mutex has been taken
     dma_set_window(waddr);
     if (dma_fd >= 0) fmem_write32(dma_fd, waddr, wdata);
     else {
@@ -302,7 +313,7 @@ FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
 {
     sem_init(&sem_misc_response, 0, 0);
     io = new FPGA_io(id);
-    virtio_devices.set_virtio_dma_fd(io->get_dma_fd());
+    virtio_devices.set_virtio_dma_funcs();
     set_htif_base_addr(0x10001000);
 }
 
@@ -349,6 +360,7 @@ void FPGA::close_dma()
 */
 
 void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
+    std::lock_guard<std::mutex> lock(dma_mutex);
     printf("DMA read? addr %08x size %ld",
                     addr, size);
     int i=0;
@@ -363,13 +375,14 @@ void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
     printf(" data[0]: %c\r\n", data[0]);
 }
 
-void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
+void FPGA::dma_write(uint32_t addr, const uint8_t *data, size_t size) {
+    std::lock_guard<std::mutex> lock(dma_mutex);
     printf("DMA write? addr %08x size %ld data[0]: %c\r\n",
                     addr, size, data[0]);
     int i=0;
     if (addr&3 == 0) {
         for (; i<size; i+=4) {
-            io->dma_write32(addr+i, ((uint32_t *)(data+i))[0]);
+            io->dma_write32(addr+i, ((const uint32_t *)(data+i))[0]);
         }
         i -= 4; // undo add that pushed us over so the byte loop
                 // can clean up
