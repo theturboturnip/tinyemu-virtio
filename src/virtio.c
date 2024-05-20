@@ -242,11 +242,13 @@ static void virtio_pci_bar_set(void *opaque, int bar_num,
     phys_mem_set_addr(s->mem_range, addr, enabled);
 }
 
-static int virtio_dma_fd = -1;
+static void (*virtio_dma_read)(uint32_t, uint8_t*, size_t) = NULL;
+static void (*virtio_dma_write)(uint32_t, const uint8_t*, size_t) = NULL;
 
-void virtio_dma_init(int dma_fd)
+void virtio_dma_init(void (*dma_read)(uint32_t, uint8_t*, size_t), void (*dma_write)(uint32_t, const uint8_t*, size_t))
 {
-    virtio_dma_fd = dma_fd;
+    virtio_dma_read = dma_read;
+    virtio_dma_write = dma_write;
 }
 
 static void virtio_init(VIRTIODevice *s, VIRTIOBusDef *bus,
@@ -335,8 +337,13 @@ static void virtio_init(VIRTIODevice *s, VIRTIOBusDef *bus,
 static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf, virtio_phys_addr_t addr, int count);
 static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr, const uint8_t *buf, int count);
 
+
 static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
 {
+    uint16_t data = 0;
+    virtio_memcpy_from_ram(s, &data, addr, 2);
+    return data;
+    /*
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
         uint16_t ret = fmem_read16(virtio_dma_fd, addr);
@@ -346,11 +353,14 @@ static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
         printf("virtio_read16 bad dma_fd: %x \r\n", virtio_dma_fd);
         abort();
     }
+    */
 }
 
 static void virtio_write16(VIRTIODevice *s, virtio_phys_addr_t addr,
                            uint16_t val)
 {
+    virtio_memcpy_to_ram(s, &val, addr, 2);
+    /*
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
         printf("virtio_write16 phys_addr: %lx val: %x dma_fd: %x \r\n", addr, val, virtio_dma_fd);
@@ -359,11 +369,14 @@ static void virtio_write16(VIRTIODevice *s, virtio_phys_addr_t addr,
         printf("virtio_write16 bad dma_fd: %x \r\n", virtio_dma_fd);
         abort();
     }
+    */
 }
 
 static void virtio_write32(VIRTIODevice *s, virtio_phys_addr_t addr,
                            uint32_t val)
 {
+    virtio_memcpy_to_ram(s, &val, addr, 4);
+    /*
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
         printf("virtio_write32 phys_addr: %lx val: %x dma_fd: %x \r\n", addr, val, virtio_dma_fd);
@@ -372,12 +385,15 @@ static void virtio_write32(VIRTIODevice *s, virtio_phys_addr_t addr,
         printf("virtio_write32 bad dma_fd: %x \r\n", virtio_dma_fd);
         abort();
     }
+    */
 }
 
 static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
                                   virtio_phys_addr_t addr, int count)
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
+    virtio_dma_read(addr, buf, count);
+    /*
     if (virtio_dma_fd > 0) {
         //printf("virtio_memcpy_from_ram phys_addr: %lx ", addr);
 	int i=0;
@@ -393,12 +409,15 @@ static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
         printf("virtio_memcpy_from_ram bad dma_fd: %x \r\n", virtio_dma_fd);
         abort();
     }
+    */
 }
 
 static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr,
-                                const uint8_t *buf, int count)
+                                const uint8_t * buf, int count)
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
+    virtio_dma_write(addr, buf, count);
+    /*
     if (virtio_dma_fd > 0) {
 	int i=0;
         printf("virtio_memcpy_to_ram phys_addr: %lx buf[0]: %x count: %d dma_fd: %x \r\n", addr, buf[0], count, virtio_dma_fd);
@@ -412,6 +431,7 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr,
         printf("virtio_memcpy_to_ram bad dma_fd: %x \r\n", virtio_dma_fd);
         abort();
     }
+    */
 }
 
 static int get_desc(VIRTIODevice *s, VIRTIODesc *desc,

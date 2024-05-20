@@ -125,10 +125,9 @@ void VirtioDevices::set_virtio_stdin_fd(int fd)
     console->opaque = (void *)(intptr_t)fd;
 }
 
-// TODO replace this with set_virtio_dma_iface which takes function pointers for fpga_singleton_dma_{read,write}
-void VirtioDevices::set_virtio_dma_fd(int fd)
+void VirtioDevices::set_virtio_dma_funcs()
 {
-    virtio_dma_init(fd);
+    virtio_dma_init(fpga_singleton_dma_read, fpga_singleton_dma_write);
 }
 
 bool VirtioDevices::has_virtio_console_device()

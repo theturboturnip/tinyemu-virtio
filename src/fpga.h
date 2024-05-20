@@ -71,6 +71,9 @@ class FPGA {
 
     std::mutex misc_request_mutex;
     std::mutex stdin_mutex;
+    // Mutex which protects DMA - DMAs are performed through a window selected by a `selector_fd`,
+    // which is global state. DMAs can thus not be attempted at the same time, in case their selector values interfere.
+    std::mutex dma_mutex;
     std::queue<uint8_t> stdin_queue;
     int stop_stdin_pipe[2];
     pthread_t stdin_thread;
@@ -91,7 +94,7 @@ public:
     void open_dma();
     void close_dma();
     void dma_read(uint32_t addr, uint8_t * data, size_t num_bytes);
-    void dma_write(uint32_t addr, uint8_t *data, size_t num_bytes);
+    void dma_write(uint32_t addr, const uint8_t *data, size_t num_bytes);
 
     void irq_set_levels(uint32_t w1s);
     void irq_clear_levels(uint32_t w1c);
@@ -133,4 +136,4 @@ void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface);
 extern "C" void fpga_singleton_dma_read(uint32_t addr, uint8_t * data, size_t num_bytes);
 // Call dma_write on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
 // Assumes the FPGA singleton has been initialized, and should not be called until fpga_singleton_init() has been called.
-extern "C" void fpga_singleton_dma_write(uint32_t addr, uint8_t *data, size_t num_bytes);
+extern "C" void fpga_singleton_dma_write(uint32_t addr, const uint8_t * data, size_t num_bytes);
