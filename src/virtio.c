@@ -341,7 +341,7 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr, const 
 static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
 {
     uint16_t data = 0;
-    virtio_memcpy_from_ram(s, &data, addr, 2);
+    virtio_memcpy_from_ram(s, (uint8_t*)&data, addr, 2);
     return data;
     /*
     addr -= FMEM_HOST_CACHED_MEM_BASE;
@@ -359,7 +359,7 @@ static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
 static void virtio_write16(VIRTIODevice *s, virtio_phys_addr_t addr,
                            uint16_t val)
 {
-    virtio_memcpy_to_ram(s, &val, addr, 2);
+    virtio_memcpy_to_ram(s, addr, (const uint8_t*)&val, 2);
     /*
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
@@ -375,7 +375,7 @@ static void virtio_write16(VIRTIODevice *s, virtio_phys_addr_t addr,
 static void virtio_write32(VIRTIODevice *s, virtio_phys_addr_t addr,
                            uint32_t val)
 {
-    virtio_memcpy_to_ram(s, &val, addr, 4);
+    virtio_memcpy_to_ram(s, addr, (const uint8_t*)&val, 4);
     /*
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
@@ -393,6 +393,7 @@ static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     virtio_dma_read(addr, buf, count);
+    return 0;
     /*
     if (virtio_dma_fd > 0) {
         for (int i=0; i<count; i++) buf[i] = fmem_read8(virtio_dma_fd, addr+i);
@@ -412,6 +413,7 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr,
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     virtio_dma_write(addr, buf, count);
+    return 0;
     /*
     if (virtio_dma_fd > 0) {
         printf("virtio_memcpy_to_ram phys_addr: %lx buf[0]: %x count: %d dma_fd: %x \r\n", addr, buf[0], count, virtio_dma_fd);
