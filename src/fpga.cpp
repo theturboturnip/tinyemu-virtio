@@ -368,10 +368,12 @@ void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
         for (; i<size; i+=4) {
             ((uint32_t *)(data+i))[0] = io->dma_read32(addr+i);
         }
+        if (i > size) {
         i -= 4; // undo add that pushed us over so the byte loop
                 // can clean up
     }
-    for (int i=0; i<size; i++) data[i] = io->dma_read8(addr+i);
+    }
+    for (i; i<size; i++) data[i] = io->dma_read8(addr+i);
     printf(" data[0]: %c\r\n", data[0]);
 }
 
@@ -384,10 +386,12 @@ void FPGA::dma_write(uint32_t addr, const uint8_t *data, size_t size) {
         for (; i<size; i+=4) {
             io->dma_write32(addr+i, ((const uint32_t *)(data+i))[0]);
         }
+        if (i > size) {
         i -= 4; // undo add that pushed us over so the byte loop
                 // can clean up
     }
-    for (int i=0; i<size; i++) io->dma_write8(addr+i, data[i]);
+    }
+    for (i; i<size; i++) io->dma_write8(addr+i, data[i]);
 }
 
 /* XXX Implement IRQs somehow.  Just stubbed out for now. */
