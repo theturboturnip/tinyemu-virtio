@@ -57,6 +57,7 @@ public:
             filename[255] = '\0';
         }
         mmio_fd = open(filename, O_RDWR);
+        fprintf(stdout, "MMIO fd: %d\n", mmio_fd);
         // Open address window selector fmem device
         fmemdev = getenv("RISCV_ADDRESS_SELECTOR_FMEM_DEV");
         if (fmemdev) {
@@ -70,6 +71,7 @@ public:
             fprintf(stderr, "ERROR: Failed to open address selector device file: %s\r\n", strerror(errno));
             abort();
         }
+        fprintf(stdout, "selector fd: %d\n", selector_fd);
         // Open DMA fmem file descriptor.
         // This one allows access to coherent shared memory with the guest.
         fmemdev = getenv("RISCV_DMA_FMEM_DEV");
@@ -84,6 +86,8 @@ public:
             fprintf(stderr, "ERROR: Failed to open fmem dma device file: %s\r\n", strerror(errno));
             abort();
         }
+        fprintf(stdout, "DMA fd: %d\n", dma_fd);
+        fflush(stdout);
         fmem_write32(mmio_fd, VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
         // Opem IRQ fmem device
         // This is a couple registers that allow setting and clearing interrupts for the guest.
@@ -184,6 +188,7 @@ uint32_t FPGA_io::dma_read32(uint64_t raddr) {
 void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
     // Assuming DMA mutex has been taken
     uint32_t dma_offset = dma_set_window(waddr);
+    printf("dma_write8 addr 0x%016lx data 0x%u\r\n", waddr, wdata);
     if (dma_fd >= 0) fmem_write8(dma_fd, dma_offset, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
@@ -193,6 +198,7 @@ void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
 
 void FPGA_io::dma_write32(uint64_t waddr, uint32_t wdata) {
     // Assuming DMA mutex has been taken
+    printf("dma_write32 addr 0x%016lx data 0x%u\r\n", waddr, wdata);
     uint32_t dma_offset = dma_set_window(waddr);
     if (dma_fd >= 0) fmem_write32(dma_fd, dma_offset, wdata);
     else {
@@ -378,9 +384,9 @@ void FPGA::dma_read(uint64_t addr, uint8_t *data, size_t size) {
             ((uint32_t *)(data+i))[0] = io->dma_read32(addr+i);
         }
         if (i > size) {
-        i -= 4; // undo add that pushed us over so the byte loop
-                // can clean up
-    }
+            i -= 4; // undo add that pushed us over so the byte loop
+                    // can clean up
+        }
     }
     for (i; i<size; i++) data[i] = io->dma_read8(addr+i);
     printf("dma_read done, data[0]: 0x%x\r\n", data[0]);
@@ -395,9 +401,9 @@ void FPGA::dma_write(uint64_t addr, const uint8_t *data, size_t size) {
             io->dma_write32(addr+i, ((const uint32_t *)(data+i))[0]);
         }
         if (i > size) {
-        i -= 4; // undo add that pushed us over so the byte loop
-                // can clean up
-    }
+            i -= 4; // undo add that pushed us over so the byte loop
+                    // can clean up
+        }
     }
     for (i; i<size; i++) io->dma_write8(addr+i, data[i]);
     printf("dma_write done\r\n");
