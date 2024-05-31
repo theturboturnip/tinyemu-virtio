@@ -65,7 +65,8 @@ uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
         uint32_t dat_mask = -1;
         if (width == 1) dat_mask = 0xFF;
         if (width == 2) dat_mask = 0xFFFF;
-        printf("read! offset: %x, req.data: %x, adr_mask: %x, dat_mask: %x \r\n", offset, req.data, adr_mask, dat_mask);
+        fprintf(stdout, "read! fd: %d, offset: %x, req.data: %x, adr_mask: %x, dat_mask: %x \r\n", fd, offset, req.data, adr_mask, dat_mask);
+        fflush(stdout);
         return ((wide >> ((offset & ~adr_mask)*8)) & dat_mask);
     } else return (0);
 }
@@ -95,8 +96,10 @@ uint64_t fmem_write(int fd, uint32_t offset, uint32_t data, uint8_t width)
     req.data = data;
     req.access_width = width;
 
+    fprintf(stderr, "starting write! fd: %d, offset: %x\r\n", fd, offset);
     error = ioctl(fd, FMEM_WRITE, &req);
-    printf("write! offset: %x, req.data: %x, width: %x \r\n", offset, req.data, width);
+    fprintf(stdout, "write! fd: %d, offset: %x, req.data: %x, width: %x \r\n", fd, offset, req.data, width);
+    fflush(stdout);
     return (error);
 }
 uint64_t fmem_write8(int fd, uint32_t offset, uint8_t data)
