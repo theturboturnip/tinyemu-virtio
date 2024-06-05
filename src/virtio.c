@@ -380,6 +380,11 @@ static int get_desc(VIRTIODevice *s, VIRTIODesc *desc,
                                   sizeof(VIRTIODesc));
 }
 
+static void log_desc(VIRTIODesc* desc)
+{
+    printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", desc->addr, desc->len, desc->flags & VRING_DESC_F_WRITE, desc->flags & VRING_DESC_F_NEXT, desc->next);
+}
+
 static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
                                 int queue_idx, int desc_idx,
                                 int offset, int count, BOOL to_queue)
@@ -393,7 +398,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
         return 0;
 
     get_desc(s, &desc, queue_idx, desc_idx);
-    printf("first descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", desc.addr, desc.len, desc.flags & VRING_DESC_F_WRITE, desc.flags & VRING_DESC_F_NEXT, desc.next);
+    log_desc(&desc);
 
     if (to_queue) {
         f_write_flag = VRING_DESC_F_WRITE;
@@ -405,6 +410,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
                 return -1;
             desc_idx = desc.next;
             get_desc(s, &desc, queue_idx, desc_idx);
+            log_desc(&desc);
         }
     } else {
         f_write_flag = 0;
@@ -421,6 +427,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
         desc_idx = desc.next;
         offset -= desc.len;
         get_desc(s, &desc, queue_idx, desc_idx);
+        log_desc(&desc);
     }
 
     for(;;) {
@@ -500,6 +507,7 @@ static int get_desc_rw_size(VIRTIODevice *s,
     read_size = 0;
     write_size = 0;
     get_desc(s, &desc, queue_idx, desc_idx);
+    log_desc(&desc);
 
     for(;;) {
         if (desc.flags & VRING_DESC_F_WRITE)
@@ -509,6 +517,7 @@ static int get_desc_rw_size(VIRTIODevice *s,
             goto done;
         desc_idx = desc.next;
         get_desc(s, &desc, queue_idx, desc_idx);
+        log_desc(&desc);
     }
 
     for(;;) {
@@ -519,6 +528,7 @@ static int get_desc_rw_size(VIRTIODevice *s,
             break;
         desc_idx = desc.next;
         get_desc(s, &desc, queue_idx, desc_idx);
+        log_desc(&desc);
     }
 
  done:
