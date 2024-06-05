@@ -1094,7 +1094,7 @@ typedef struct VIRTIOBlockDevice {
 
 typedef struct {
     uint32_t type;
-    uint32_t ioprio;
+    uint32_t reserved;
     uint64_t sector_num;
 } BlockRequestHeader;
 
@@ -1243,6 +1243,9 @@ VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs)
     nb_sectors = bs->get_sector_count(bs);
     put_le32(s->common.config_space, nb_sectors);
     put_le32(s->common.config_space + 4, nb_sectors >> 32);
+
+    // TODO if VIRTIO_BLK_F_BLK_SIZE feature negotiated, fill in offset 20(?) with blk_size=512
+    // This is to find the "optimal block size"
 
     return (VIRTIODevice *)s;
 }
