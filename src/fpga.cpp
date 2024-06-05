@@ -108,7 +108,7 @@ public:
     /*
     dma_set_window, dma_read8, dma_read32, dma_write8, dma_write32 all assume the dma_mutex have been taken before calling them.
     */
-    void dma_set_window(uint64_t addr);
+    uint32_t dma_set_window(uint64_t addr); // Returns the offset to use when fmem-ing the DMA window
     uint8_t dma_read8(uint64_t raddr);
     uint32_t dma_read32(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
@@ -126,22 +126,30 @@ void FPGA_io::close_dma()
 }
 */
 
-#define MEM_MASK_1GB 0x3FFFFFFF
-uint64_t last_offset;
-void FPGA_io::dma_set_window(uint64_t addr) {
+// A bitmask indicating the width of the DMA window - here, 32 bits
+#define DMA_WINDOW_MASK 0x3FFFFFFFu
+// fmem_{read,write} truncate the address to 32-bits (thanks, C++ numeric coercion >:P)
+// so dma_set_window returns a truncated address masked by the window
+// => the DMA window must be at most 32-bits wide.
+static_assert(DMA_WINDOW_MASK <= std::numeric_limits<uint32_t>::max());
+
+// Keep a static to remember what the last DMA offset is.
+// It will always have the window-bits masked out, so set the initial value to have those bits set
+// => the first time we check (offset != last_offset) it will always evaluate to false.
+static uint64_t last_offset = DMA_WINDOW_MASK; 
+
+uint32_t FPGA_io::dma_set_window(uint64_t addr) {
     // Assuming DMA mutex has been taken
-    uint64_t offset = addr & (~MEM_MASK_1GB);
+    uint64_t offset = addr & (~DMA_WINDOW_MASK);
     if (offset != last_offset) {
         if (selector_fd >= 0) {
             printf("writing address selector (write) 0x0 == 0x%" PRIx64 "\n",
                     offset);
-            int error = fmem_write(0, 4, (uint32_t)offset, selector_fd);
+            int error = fmem_write64(selector_fd, 0, offset);
             if (error != 0) {
                 printf("error with address selector (write) 0x0 == 0x%" PRIx64 "\n",
                        offset);
             }
-            // Only support 32-bit address space for the moment.  Unclear if the top-half of the selector is supported, actually...
-            //error = fmem_write(4, 4, (uint32_t)(offset>>32), address_selector_fd);
             last_offset = offset;
         }
         else {
@@ -149,12 +157,14 @@ void FPGA_io::dma_set_window(uint64_t addr) {
             abort();
         };
     }
+    // Return the masked address, which is always within the window size.
+    return (uint32_t)(addr & DMA_WINDOW_MASK);
 }
 
 uint8_t FPGA_io::dma_read8(uint64_t raddr) {
     // Assuming DMA mutex has been taken
-    dma_set_window(raddr);
-    if (dma_fd >= 0) return fmem_read8(dma_fd, raddr);
+    uint32_t dma_offset = dma_set_window(raddr);
+    if (dma_fd >= 0) return fmem_read8(dma_fd, dma_offset);
     else {
         fprintf(stderr, "ERROR: Attempted read from unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -163,8 +173,8 @@ uint8_t FPGA_io::dma_read8(uint64_t raddr) {
 
 uint32_t FPGA_io::dma_read32(uint64_t raddr) {
     // Assuming DMA mutex has been taken
-    dma_set_window(raddr);
-    if (dma_fd >= 0) return fmem_read32(dma_fd, raddr);
+    uint32_t dma_offset = dma_set_window(raddr);
+    if (dma_fd >= 0) return fmem_read32(dma_fd, dma_offset);
     else {
         fprintf(stderr, "ERROR: Attempted read from unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -173,8 +183,8 @@ uint32_t FPGA_io::dma_read32(uint64_t raddr) {
 
 void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
     // Assuming DMA mutex has been taken
-    dma_set_window(waddr);
-    if (dma_fd >= 0) fmem_write8(dma_fd, waddr, wdata);
+    uint32_t dma_offset = dma_set_window(waddr);
+    if (dma_fd >= 0) fmem_write8(dma_fd, dma_offset, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -183,8 +193,8 @@ void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
 
 void FPGA_io::dma_write32(uint64_t waddr, uint32_t wdata) {
     // Assuming DMA mutex has been taken
-    dma_set_window(waddr);
-    if (dma_fd >= 0) fmem_write32(dma_fd, waddr, wdata);
+    uint32_t dma_offset = dma_set_window(waddr);
+    if (dma_fd >= 0) fmem_write32(dma_fd, dma_offset, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -361,7 +371,7 @@ void FPGA::close_dma()
 
 void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
-    printf("DMA read? addr %08x size %ld",
+    printf("DMA read? addr %08x size %ld\r\n",
                     addr, size);
     int i=0;
     if (addr&3 == 0) {
