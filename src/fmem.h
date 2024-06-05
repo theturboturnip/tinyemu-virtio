@@ -46,8 +46,6 @@ enum {
     FMEM_WRITE  = _IOWR('X', 2, struct fmem_request),
 };
 
-#define FMEM_HOST_CACHED_MEM_BASE 0xc0000000
-
 uint32_t fmem_read(int fd, uint32_t offset, uint8_t width)
 {
     struct fmem_request req;
