@@ -28,12 +28,12 @@ void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface) {
 }
 // Call dma_read on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
 // Can be passed to C interfaces as a plain function pointer.
-void fpga_singleton_dma_read(uint32_t addr, uint8_t * data, size_t num_bytes) {
+void fpga_singleton_dma_read(uint64_t addr, uint8_t * data, size_t num_bytes) {
     fpga->dma_read(addr, data, num_bytes);
 }
 // Call dma_write on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
 // Can be passed to C interfaces as a plain function pointer.
-void fpga_singleton_dma_write(uint32_t addr, const uint8_t * data, size_t num_bytes) {
+void fpga_singleton_dma_write(uint64_t addr, const uint8_t * data, size_t num_bytes) {
     fpga->dma_write(addr, data, num_bytes);
 }
 
@@ -188,7 +188,6 @@ uint32_t FPGA_io::dma_read32(uint64_t raddr) {
 void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
     // Assuming DMA mutex has been taken
     uint32_t dma_offset = dma_set_window(waddr);
-    printf("dma_write8 addr 0x%016lx data 0x%u\r\n", waddr, wdata);
     if (dma_fd >= 0) fmem_write8(dma_fd, dma_offset, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
@@ -198,7 +197,6 @@ void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
 
 void FPGA_io::dma_write32(uint64_t waddr, uint32_t wdata) {
     // Assuming DMA mutex has been taken
-    printf("dma_write32 addr 0x%016lx data 0x%u\r\n", waddr, wdata);
     uint32_t dma_offset = dma_set_window(waddr);
     if (dma_fd >= 0) fmem_write32(dma_fd, dma_offset, wdata);
     else {
@@ -375,12 +373,11 @@ void FPGA::close_dma()
 }
 */
 
-void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
+void FPGA::dma_read(uint64_t addr, uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
-    printf("DMA read? addr %08x size %ld\r\n",
-                    addr, size);
+    printf("dma_read addr: %016lx size: %d\r\n", addr, data[0], size);
     int i=0;
-    if (addr&3 == 0) {
+    if ((addr & 3) == 0) {
         for (; i<size; i+=4) {
             ((uint32_t *)(data+i))[0] = io->dma_read32(addr+i);
         }
@@ -390,16 +387,14 @@ void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
         }
     }
     for (i; i<size; i++) data[i] = io->dma_read8(addr+i);
-    printf(" data[0]: %c\r\n", data[0]);
-    printf("DMA read done\r\n");
+    printf("dma_read done, data[0]: 0x%x\r\n", data[0]);
 }
 
-void FPGA::dma_write(uint32_t addr, const uint8_t *data, size_t size) {
+void FPGA::dma_write(uint64_t addr, const uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
-    printf("DMA write? addr %08x size %ld data[0]: %c\r\n",
-                    addr, size, data[0]);
+    printf("dma_write addr: %016lx size: %d data[0]: 0x%x\r\n", addr, size, data[0]);
     int i=0;
-    if (addr&3 == 0) {
+    if ((addr & 3) == 0) {
         for (; i<size; i+=4) {
             io->dma_write32(addr+i, ((const uint32_t *)(data+i))[0]);
         }
@@ -409,7 +404,7 @@ void FPGA::dma_write(uint32_t addr, const uint8_t *data, size_t size) {
         }
     }
     for (i; i<size; i++) io->dma_write8(addr+i, data[i]);
-    printf("DMA write done\r\n");
+    printf("dma_write done\r\n");
 }
 
 /* XXX Implement IRQs somehow.  Just stubbed out for now. */
