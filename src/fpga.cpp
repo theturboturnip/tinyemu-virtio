@@ -130,8 +130,10 @@ void FPGA_io::close_dma()
 }
 */
 
-// A bitmask indicating the width of the DMA window - here, 32 bits
-#define DMA_WINDOW_MASK 0x3FFFFFFFu
+// A bitmask indicating the width of the DMA window - here, 30 bits
+// OVERRIDDEN TO 4KB FOR TESTING
+// #define DMA_WINDOW_MASK 0x3FFFFFFFu
+#define DMA_WINDOW_MASK 0xFFFu
 // fmem_{read,write} truncate the address to 32-bits (thanks, C++ numeric coercion >:P)
 // so dma_set_window returns a truncated address masked by the window
 // => the DMA window must be at most 32-bits wide.
