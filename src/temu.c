@@ -35,10 +35,16 @@
 #ifndef _WIN32
 #include <termios.h>
 #include <sys/ioctl.h>
-#include <net/if.h>
-#include <net/if_tun.h>
-#include <net/if_tap.h>
+#endif /* !_WIN32 */
+#if CONFIG_TUN
+#ifndef __linux__
+#error "CONFIG_TUN is not supported on non-Linux platforms"
 #endif
+
+#include <net/if.h>
+// NOTE this does not compile on FreeBSD - I'm not confident that just swapping out the headers will work...
+#include <linux/if_tun.h>
+#endif /* CONFIG_TUN */
 #include <sys/stat.h>
 #include <signal.h>
 
@@ -345,7 +351,7 @@ BlockDevice *block_device_init(const char *filename,
     return bs;
 }
 
-#ifndef _WIN32
+#ifdef CONFIG_TUN
 
 typedef struct {
     int fd;
@@ -429,9 +435,9 @@ EthernetDevice *tun_open(const char *ifname)
         return NULL;
     }
     memset(&ifr, 0, sizeof(ifr));
-    //ifr.ifr_flags = IFF_TAP | IFF_NO_PI; ### To build for FreeBSD
+    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
     pstrcpy(ifr.ifr_name, sizeof(ifr.ifr_name), ifname);
-    ret = 0;//ioctl(fd, TUNSETIFF, (void *) &ifr); ### To build for FreeBSD
+    ret = ioctl(fd, TUNSETIFF, (void *) &ifr);
     if (ret != 0) {
         fprintf(stderr, "Error: could not configure /dev/net/tun\n");
         close(fd);
@@ -455,7 +461,7 @@ EthernetDevice *tun_open(const char *ifname)
     return net;
 }
 
-#endif /* !_WIN32 */
+#endif /* CONFIG_TUN */
 
 #ifdef CONFIG_SLIRP
 
