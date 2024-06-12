@@ -35,9 +35,16 @@
 #ifndef _WIN32
 #include <termios.h>
 #include <sys/ioctl.h>
-#include <net/if.h>
-#include <linux/if_tun.h>
+#endif /* !_WIN32 */
+#if CONFIG_TUN
+#ifndef __linux__
+#error "CONFIG_TUN is not supported on non-Linux platforms"
 #endif
+
+#include <net/if.h>
+// NOTE this does not compile on FreeBSD - I'm not confident that just swapping out the headers will work...
+#include <linux/if_tun.h>
+#endif /* CONFIG_TUN */
 #include <sys/stat.h>
 #include <signal.h>
 
@@ -344,7 +351,7 @@ BlockDevice *block_device_init(const char *filename,
     return bs;
 }
 
-#ifndef _WIN32
+#ifdef CONFIG_TUN
 
 typedef struct {
     int fd;
@@ -454,7 +461,7 @@ EthernetDevice *tun_open(const char *ifname)
     return net;
 }
 
-#endif /* !_WIN32 */
+#endif /* CONFIG_TUN */
 
 #ifdef CONFIG_SLIRP
 
