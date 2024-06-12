@@ -16,6 +16,9 @@ set(FS_NET_SOURCES block_net.c fs_net.c fs_wget.c fs_wget.h)
 set(FS_NET_LIBRARIES -lcurl -lssl -lcrypto)
 endif()
 
+# Give C++ the same #defines and options as C
+set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${CMAKE_CXX_FLAGS}")
+
 set(TINYEMU_SOURCES
   slirp/bootp.c
   slirp/bootp.h

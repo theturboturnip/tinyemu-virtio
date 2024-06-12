@@ -60,7 +60,26 @@ VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
 
     // set up a network device
     virtio_bus->irq = &irq[irq_num++];
-    ethernet_device = /*tun_ifname ? tun_open(tun_ifname) :*/ slirp_open();
+
+    #if !defined(CONFIG_TUN) && !defined(CONFIG_SLIRP)
+    #error "Neither TUN networking or SLIRP networking are available!"
+    #endif
+    if (tun_ifname) {
+        #ifdef CONFIG_TUN
+        ethernet_device = tun_open(tun_ifname);
+        #else
+        fprintf(stderr, "tinyemu was not compiled with TUN network support, so can't open the tunnel '%s'.\n", tun_ifname);
+        abort();
+        #endif
+    } else {
+        #ifdef CONFIG_SLIRP
+        ethernet_device = slirp_open();
+        #else
+        fprintf(stderr, "tinyemu was not compiled with SLIRP network support, and a TUN tunnel wasn't selected, so can't initialize the network.\n");
+        abort();
+        #endif
+    }
+
     virtio_net = virtio_net_init(virtio_bus, ethernet_device);
     debugLog("ethernet device %p virtio net device %p at addr %08lx\r\r\n", ethernet_device, virtio_net, virtio_bus->addr);
 
