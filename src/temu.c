@@ -37,13 +37,17 @@
 #include <sys/ioctl.h>
 #endif /* !_WIN32 */
 #if CONFIG_TUN
-#ifndef __linux__
-#error "CONFIG_TUN is not supported on non-Linux platforms"
-#endif
-
 #include <net/if.h>
-// NOTE this does not compile on FreeBSD - I'm not confident that just swapping out the headers will work...
+
+#if defined(__linux__)
 #include <linux/if_tun.h>
+#elif defined(__FreeBSD__)
+#include <net/if_tun.h>
+#include <net/if_tap.h>
+#else
+#error "CONFIG_TUN is only supported on Linux and FreeBSD platforms"
+#endif /* __linux__, __FreeBSD__, or neither */
+
 #endif /* CONFIG_TUN */
 #include <sys/stat.h>
 #include <signal.h>
@@ -435,9 +439,18 @@ EthernetDevice *tun_open(const char *ifname)
         return NULL;
     }
     memset(&ifr, 0, sizeof(ifr));
+    #ifdef  __linux__
     ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+    #else
+    // ifr_flags we want aren't supported on FreeBSD (?)
+    #endif
     pstrcpy(ifr.ifr_name, sizeof(ifr.ifr_name), ifname);
+    #ifdef __linux__
     ret = ioctl(fd, TUNSETIFF, (void *) &ifr);
+    #else
+    // TUNSETIFF not supported on FreeBSD
+    ret = 0;
+    #endif
     if (ret != 0) {
         fprintf(stderr, "Error: could not configure /dev/net/tun\n");
         close(fd);

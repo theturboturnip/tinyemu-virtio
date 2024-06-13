@@ -84,7 +84,7 @@ int main(int argc, char * const *argv)
 
     while (1) {
         int option_index = optind ? optind : 1;
-        char c = getopt_long(argc, argv, "B:C:d:D:e:hH:LMp:U:X:",
+        int c = getopt_long(argc, argv, "B:C:d:D:e:hH:LMp:U:X:",
                              long_options, &option_index);
         if (c == -1)
             break;
@@ -200,7 +200,7 @@ int main(int argc, char * const *argv)
     while (1) {
         if (fpga->emulated_mmio_has_request())
             fpga->emulated_mmio_respond();
-        else usleep(1000000); // Wait in hope of a new request.
+        else usleep(10000); // Wait in hope of a new request.
     }
     
     int exit_code = fpga->join_io();
