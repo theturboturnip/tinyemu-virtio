@@ -324,8 +324,8 @@ void FPGA_io::console_putchar(uint64_t wdata) {
 }
 
 FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
-    : io(0), rom(rom), ctrla_seen(0), irq_state(0), sifive_test_addr(0x50000000),
-      htif_enabled(0), uart_enabled(0), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface)
+    : io(0), rom(rom), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface), irq_state(0),
+      ctrla_seen(0), sifive_test_addr(0x50000000), htif_enabled(0), uart_enabled(0)
 {
     sem_init(&sem_misc_response, 0, 0);
     io = new FPGA_io(id);
@@ -377,8 +377,8 @@ void FPGA::close_dma()
 
 void FPGA::dma_read(uint64_t addr, uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
-    printf("dma_read addr: %016lx size: %d\r\n", addr, data[0], size);
-    int i=0;
+    printf("dma_read addr: %016lx size: %lu\r\n", addr, size);
+    size_t i = 0;
     if ((addr & 3) == 0) {
         for (; i<size; i+=4) {
             ((uint32_t *)(data+i))[0] = io->dma_read32(addr+i);
@@ -388,16 +388,16 @@ void FPGA::dma_read(uint64_t addr, uint8_t *data, size_t size) {
                     // can clean up
         }
     }
-    for (i; i<size; i++) data[i] = io->dma_read8(addr+i);
+    for (; i<size; i++) data[i] = io->dma_read8(addr+i);
     printf("dma_read done, data[0]: 0x%x\r\n", data[0]);
 }
 
 void FPGA::dma_write(uint64_t addr, const uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
-    printf("dma_write addr: %016lx size: %d data[0]: 0x%x\r\n", addr, size, data[0]);
-    int i=0;
+    printf("dma_write addr: %016lx size: %lu data[0]: 0x%x\r\n", addr, size, data[0]);
+    size_t i = 0;
     if ((addr & 3) == 0) {
-        for (; i<size; i+=4) {
+        for (; i < size; i += 4) {
             io->dma_write32(addr+i, ((const uint32_t *)(data+i))[0]);
         }
         if (i > size) {
@@ -405,7 +405,7 @@ void FPGA::dma_write(uint64_t addr, const uint8_t *data, size_t size) {
                     // can clean up
         }
     }
-    for (i; i<size; i++) io->dma_write8(addr+i, data[i]);
+    for (; i < size; i++) io->dma_write8(addr+i, data[i]);
     printf("dma_write done\r\n");
 }
 
@@ -487,7 +487,7 @@ void FPGA::enqueue_stdin(char *buf, size_t num_chars)
         }
     } else {
         std::lock_guard<std::mutex> lock(stdin_mutex);
-        for (int i = 0; i < num_chars; i++) {
+        for (size_t i = 0; i < num_chars; i++) {
             stdin_queue.push(buf[i]);
         }
     }
@@ -520,7 +520,7 @@ void FPGA::process_stdin()
         FD_SET(stop_fd, &rfds);
         fd_max = std::max(stdin_fd, stop_fd);
 
-        int ret = select(fd_max + 1, &rfds, &wfds, &efds, NULL);
+        select(fd_max + 1, &rfds, &wfds, &efds, NULL);
         if (FD_ISSET(stop_fd, &rfds)) {
             break;
         }
