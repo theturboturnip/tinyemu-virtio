@@ -9,6 +9,8 @@
 #include "util.h"
 #include "fmem.h"
 
+#include "iocap/librust_caps_c.h"
+
 #define TOHOST_OFFSET 0
 #define FROMHOST_OFFSET 8
 #define FIRST_VIRTIO_IRQ 0
@@ -28,13 +30,13 @@ void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface) {
 }
 // Call dma_read on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
 // Can be passed to C interfaces as a plain function pointer.
-void fpga_singleton_dma_read(uint64_t addr, uint8_t * data, size_t num_bytes) {
-    fpga->dma_read(addr, data, num_bytes);
+void fpga_singleton_dma_read(CCap2024_02* iocap, uint64_t addr, uint8_t * data, size_t num_bytes) {
+    fpga->dma_read(iocap, addr, data, num_bytes);
 }
 // Call dma_write on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
 // Can be passed to C interfaces as a plain function pointer.
-void fpga_singleton_dma_write(uint64_t addr, const uint8_t * data, size_t num_bytes) {
-    fpga->dma_write(addr, data, num_bytes);
+void fpga_singleton_dma_write(CCap2024_02* iocap, uint64_t addr, const uint8_t * data, size_t num_bytes) {
+    fpga->dma_write(iocap, addr, data, num_bytes);
 }
 
 class FPGA_io {
@@ -112,6 +114,7 @@ public:
     /*
     dma_set_window, dma_read8, dma_read32, dma_write8, dma_write32 all assume the dma_mutex have been taken before calling them.
     */
+    void dma_set_iocap(CCap2024_02* iocap);
     uint32_t dma_set_window(uint64_t addr); // Returns the offset to use when fmem-ing the DMA window
     uint8_t dma_read8(uint64_t raddr);
     uint32_t dma_read32(uint64_t raddr);
@@ -129,6 +132,76 @@ void FPGA_io::close_dma()
         close(dma_fd);
 }
 */
+
+// Keep a static to remember what the last IOCap was.
+// Assume an IOcap will never be all-zeros.
+static CCap2024_02 last_iocap = {0};
+
+void FPGA_io::dma_set_iocap(CCap2024_02* iocap) {
+    if (memcmp(iocap, &last_iocap, 32) != 0) {
+        if (selector_fd >= 0) {
+            printf("writing iocap 0x0 == 0x%x\n",
+                    iocap->data[0]);
+            int error = fmem_write64(selector_fd, 8,
+                ((uint64_t)iocap->data[0] << 0) |
+                ((uint64_t)iocap->data[1] << 8) |
+                ((uint64_t)iocap->data[2] << 16) |
+                ((uint64_t)iocap->data[3] << 24) |
+                ((uint64_t)iocap->data[4] << 32) |
+                ((uint64_t)iocap->data[5] << 40) |
+                ((uint64_t)iocap->data[6] << 48) |
+                ((uint64_t)iocap->data[7] << 56)
+            );
+            if (error != 0) {
+                printf("error with address selector (write)\n");
+            }
+            error = fmem_write64(selector_fd, 16,
+                ((uint64_t)iocap->data[8] << 0) |
+                ((uint64_t)iocap->data[9] << 8) |
+                ((uint64_t)iocap->data[10] << 16) |
+                ((uint64_t)iocap->data[11] << 24) |
+                ((uint64_t)iocap->data[12] << 32) |
+                ((uint64_t)iocap->data[13] << 40) |
+                ((uint64_t)iocap->data[14] << 48) |
+                ((uint64_t)iocap->data[15] << 56)
+            );
+            if (error != 0) {
+                printf("error with address selector (write)\n");
+            }
+            error = fmem_write64(selector_fd, 24,
+                ((uint64_t)iocap->signature[0] << 0) |
+                ((uint64_t)iocap->signature[1] << 8) |
+                ((uint64_t)iocap->signature[2] << 16) |
+                ((uint64_t)iocap->signature[3] << 24) |
+                ((uint64_t)iocap->signature[4] << 32) |
+                ((uint64_t)iocap->signature[5] << 40) |
+                ((uint64_t)iocap->signature[6] << 48) |
+                ((uint64_t)iocap->signature[7] << 56)
+            );
+            if (error != 0) {
+                printf("error with address selector (write)\n");
+            }
+            error = fmem_write64(selector_fd, 32,
+                ((uint64_t)iocap->signature[8] << 0) |
+                ((uint64_t)iocap->signature[9] << 8) |
+                ((uint64_t)iocap->signature[10] << 16) |
+                ((uint64_t)iocap->signature[11] << 24) |
+                ((uint64_t)iocap->signature[12] << 32) |
+                ((uint64_t)iocap->signature[13] << 40) |
+                ((uint64_t)iocap->signature[14] << 48) |
+                ((uint64_t)iocap->signature[15] << 56)
+            );
+            if (error != 0) {
+                printf("error with address selector (write)\n");
+            }
+            memcpy(&last_iocap, iocap, 32);
+        }
+        else {
+            fprintf(stderr, "ERROR: Attempted write unusable fmem address selector device file: %s\r\n", strerror(errno));
+            abort();
+        };
+    }
+}
 
 // A bitmask indicating the width of the DMA window - here, 32 bits
 #define DMA_WINDOW_MASK 0x3FFFFFFFu
@@ -375,9 +448,10 @@ void FPGA::close_dma()
 }
 */
 
-void FPGA::dma_read(uint64_t addr, uint8_t *data, size_t size) {
+void FPGA::dma_read(CCap2024_02* iocap, uint64_t addr, uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
     printf("dma_read addr: %016lx size: %lu\r\n", addr, size);
+    io->dma_set_iocap(iocap);
     size_t i = 0;
     if ((addr & 3) == 0) {
         for (; i<size; i+=4) {
@@ -392,9 +466,10 @@ void FPGA::dma_read(uint64_t addr, uint8_t *data, size_t size) {
     printf("dma_read done, data[0]: 0x%x\r\n", data[0]);
 }
 
-void FPGA::dma_write(uint64_t addr, const uint8_t *data, size_t size) {
+void FPGA::dma_write(CCap2024_02* iocap, uint64_t addr, const uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
     printf("dma_write addr: %016lx size: %lu data[0]: 0x%x\r\n", addr, size, data[0]);
+    io->dma_set_iocap(iocap);
     size_t i = 0;
     if ((addr & 3) == 0) {
         for (; i < size; i += 4) {

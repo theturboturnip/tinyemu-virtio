@@ -146,12 +146,12 @@ uint64_t loadElf(FPGA *fpga, const char *elf_filename, size_t max_mem_size, bool
 
         if (phdr.p_type != PT_LOAD) continue;
 
-        fpga->dma_write(phdr.p_paddr, rawdata + phdr.p_offset, phdr.p_filesz);
+        fpga->dma_write({0}, phdr.p_paddr, rawdata + phdr.p_offset, phdr.p_filesz);
         size_t zero_paddr = phdr.p_paddr + phdr.p_filesz;
         size_t zero_len = phdr.p_memsz - phdr.p_filesz;
         while (zero_len > 0) {
             size_t block_len = std::min(zero_len, sizeof(zeroes));
-            fpga->dma_write(zero_paddr, zeroes, block_len);
+            fpga->dma_write({0}, zero_paddr, zeroes, block_len);
             zero_paddr += block_len;
             zero_len -= block_len;
         }

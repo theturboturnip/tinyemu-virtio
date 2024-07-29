@@ -52,6 +52,8 @@ static inline ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
 #include "virtio.h"
 #include "fmem.h"
 
+#include "iocap/librust_caps_c.h"
+
 #define DEBUG_VIRTIO
 
 /* MMIO addresses - from the Linux kernel */
@@ -80,6 +82,16 @@ static inline ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
 #define VIRTIO_MMIO_QUEUE_AVAIL_HIGH    0x094
 #define VIRTIO_MMIO_QUEUE_USED_LOW      0x0a0
 #define VIRTIO_MMIO_QUEUE_USED_HIGH     0x0a4
+/** IOCap-specific start! */
+#define VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD0   0x0b0
+#define VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD1   0x0b4
+#define VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD2   0x0b8
+#define VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD3   0x0bc
+#define VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD0   0x0c0
+#define VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD1   0x0c4
+#define VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD2   0x0c8
+#define VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD3   0x0cc
+/** IOCap-specific end! */
 #define VIRTIO_MMIO_CONFIG_GENERATION   0x0fc
 #define VIRTIO_MMIO_CONFIG              0x100
 
@@ -123,6 +135,7 @@ typedef struct {
     virtio_phys_addr_t desc_addr;
     virtio_phys_addr_t avail_addr;
     virtio_phys_addr_t used_addr;
+    CCap2024_02 queue_iocap;
     BOOL manual_recv; /* if TRUE, the device_recv() callback is not called */
 } QueueState;
 
@@ -242,10 +255,10 @@ static void virtio_pci_bar_set(void *opaque, int bar_num,
     phys_mem_set_addr(s->mem_range, addr, enabled);
 }
 
-static void (*virtio_dma_read)(virtio_phys_addr_t, uint8_t*, size_t) = NULL;
-static void (*virtio_dma_write)(virtio_phys_addr_t, const uint8_t*, size_t) = NULL;
+static void (*virtio_dma_read)(CCap2024_02*, virtio_phys_addr_t, uint8_t*, size_t) = NULL;
+static void (*virtio_dma_write)(CCap2024_02*, virtio_phys_addr_t, const uint8_t*, size_t) = NULL;
 
-void virtio_dma_init(void (*dma_read)(virtio_phys_addr_t, uint8_t*, size_t), void (*dma_write)(virtio_phys_addr_t, const uint8_t*, size_t))
+void virtio_dma_init(void (*dma_read)(CCap2024_02*, virtio_phys_addr_t, uint8_t*, size_t), void (*dma_write)(CCap2024_02*, virtio_phys_addr_t, const uint8_t*, size_t))
 {
     virtio_dma_read = dma_read;
     virtio_dma_write = dma_write;
@@ -334,48 +347,48 @@ static void virtio_init(VIRTIODevice *s, VIRTIOBusDef *bus,
     virtio_reset(s);
 }
 
-static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf, virtio_phys_addr_t addr, int count);
-static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr, const uint8_t *buf, int count);
+static int virtio_memcpy_from_ram(VIRTIODevice *s, CCap2024_02* iocap, uint8_t *buf, virtio_phys_addr_t addr, int count);
+static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr, const uint8_t *buf, int count);
 
 
-static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
+static uint16_t virtio_read16(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr)
 {
     uint16_t data = 0;
-    virtio_memcpy_from_ram(s, (uint8_t*)&data, addr, 2);
+    virtio_memcpy_from_ram(s, iocap, (uint8_t*)&data, addr, 2);
     return data;
 }
 
-static void virtio_write16(VIRTIODevice *s, virtio_phys_addr_t addr,
+static void virtio_write16(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr,
                            uint16_t val)
 {
-    virtio_memcpy_to_ram(s, addr, (const uint8_t*)&val, 2);
+    virtio_memcpy_to_ram(s, iocap, addr, (const uint8_t*)&val, 2);
 }
 
-static void virtio_write32(VIRTIODevice *s, virtio_phys_addr_t addr,
+static void virtio_write32(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr,
                            uint32_t val)
 {
-    virtio_memcpy_to_ram(s, addr, (const uint8_t*)&val, 4);
+    virtio_memcpy_to_ram(s, iocap, addr, (const uint8_t*)&val, 4);
 }
 
-static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
+static int virtio_memcpy_from_ram(VIRTIODevice *s, CCap2024_02* iocap, uint8_t *buf,
                                   virtio_phys_addr_t addr, int count)
 {
-    virtio_dma_read(addr, buf, count);
+    virtio_dma_read(iocap, addr, buf, count);
     return 0;
 }
 
-static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr,
+static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr,
                                 const uint8_t * buf, int count)
 {
-    virtio_dma_write(addr, buf, count);
+    virtio_dma_write(iocap, addr, buf, count);
     return 0;
 }
 
-static int get_desc(VIRTIODevice *s, VIRTIODesc *desc,
+static int get_desc(VIRTIODevice *s, CCap2024_02* iocap, VIRTIODesc *desc,
                     int queue_idx, int desc_idx)
 {
     QueueState *qs = &s->queue[queue_idx];
-    return virtio_memcpy_from_ram(s, (void *)desc, qs->desc_addr +
+    return virtio_memcpy_from_ram(s, iocap, (void *)desc, qs->desc_addr +
                                   desc_idx * sizeof(VIRTIODesc),
                                   sizeof(VIRTIODesc));
 }
@@ -391,13 +404,14 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 {
     VIRTIODesc desc;
     int l, f_write_flag;
+    CCap2024_02* queue_iocap = &s->queue[queue_idx].queue_iocap;
     
     printf("memcpy_to_from_queue! buf: %p, offset: %x, count: %x, to_queue: %d \r\n", buf, offset, count, to_queue);
 
     if (count == 0)
         return 0;
 
-    get_desc(s, &desc, queue_idx, desc_idx);
+    get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
     log_desc(&desc);
 
     if (to_queue) {
@@ -409,7 +423,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
             if (!(desc.flags & VRING_DESC_F_NEXT))
                 return -1;
             desc_idx = desc.next;
-            get_desc(s, &desc, queue_idx, desc_idx);
+            get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
             log_desc(&desc);
         }
     } else {
@@ -426,7 +440,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
             return -1;
         desc_idx = desc.next;
         offset -= desc.len;
-        get_desc(s, &desc, queue_idx, desc_idx);
+        get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
@@ -436,9 +450,11 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 			buf, (desc.addr + offset), count, desc.len, offset);
         printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", desc.addr, desc.len, desc.flags & VRING_DESC_F_WRITE, desc.flags & VRING_DESC_F_NEXT, desc.next);
         if (to_queue)
-            virtio_memcpy_to_ram(s, desc.addr + offset, buf, l);
+            // TODO should use a different capability!
+            virtio_memcpy_to_ram(s, queue_iocap, desc.addr + offset, buf, l);
         else
-            virtio_memcpy_from_ram(s, buf, desc.addr + offset, l);
+            // TODO should use a different capability!
+            virtio_memcpy_from_ram(s, queue_iocap, buf, desc.addr + offset, l);
         count -= l;
         if (count == 0)
             break;
@@ -449,7 +465,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
             if (!(desc.flags & VRING_DESC_F_NEXT))
                 return -1;
             desc_idx = desc.next;
-            get_desc(s, &desc, queue_idx, desc_idx);
+            get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
             if ((desc.flags & VRING_DESC_F_WRITE) != f_write_flag)
                 return -1;
             offset = 0;
@@ -484,20 +500,20 @@ static void virtio_consume_desc(VIRTIODevice *s,
     uint32_t used_idx;
 
     used_idx_addr = qs->used_addr + 2;
-    used_idx = virtio_read16(s, used_idx_addr);
+    used_idx = virtio_read16(s, &qs->queue_iocap, used_idx_addr);
 
     used_elem_addr = qs->used_addr + 4 + (used_idx & (qs->num - 1)) * 8;
-    virtio_write32(s, used_elem_addr, desc_idx);
-    virtio_write32(s, used_elem_addr + 4, desc_len);
+    virtio_write32(s, &qs->queue_iocap, used_elem_addr, desc_idx);
+    virtio_write32(s, &qs->queue_iocap, used_elem_addr + 4, desc_len);
 
     atomic_thread_fence(memory_order_release);
-    virtio_write16(s, used_idx_addr, used_idx + 1);
+    virtio_write16(s, &qs->queue_iocap, used_idx_addr, used_idx + 1);
 
     s->int_status |= 1;
     set_irq(s->irq, 1);
 }
 
-static int get_desc_rw_size(VIRTIODevice *s,
+static int get_desc_rw_size(VIRTIODevice *s, CCap2024_02* iocap,
                              int *pread_size, int *pwrite_size,
                              int queue_idx, int desc_idx)
 {
@@ -506,7 +522,7 @@ static int get_desc_rw_size(VIRTIODevice *s,
 
     read_size = 0;
     write_size = 0;
-    get_desc(s, &desc, queue_idx, desc_idx);
+    get_desc(s, iocap, &desc, queue_idx, desc_idx);
     log_desc(&desc);
 
     for(;;) {
@@ -516,7 +532,7 @@ static int get_desc_rw_size(VIRTIODevice *s,
         if (!(desc.flags & VRING_DESC_F_NEXT))
             goto done;
         desc_idx = desc.next;
-        get_desc(s, &desc, queue_idx, desc_idx);
+        get_desc(s, iocap, &desc, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
@@ -527,7 +543,7 @@ static int get_desc_rw_size(VIRTIODevice *s,
         if (!(desc.flags & VRING_DESC_F_NEXT))
             break;
         desc_idx = desc.next;
-        get_desc(s, &desc, queue_idx, desc_idx);
+        get_desc(s, iocap, &desc, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
@@ -548,16 +564,16 @@ static void queue_notify(VIRTIODevice *s, int queue_idx)
 
     printf("queue_notify manual_recv: %d\r\n", qs->manual_recv);
 
-    avail_idx = virtio_read16(s, qs->avail_addr + 2);
+    avail_idx = virtio_read16(s, &qs->queue_iocap, qs->avail_addr + 2);
     qs->avail_idx = avail_idx;
     if (qs->manual_recv)
         return;
 
     atomic_thread_fence(memory_order_acquire);
     while (qs->last_avail_idx != avail_idx) {
-        desc_idx = virtio_read16(s, qs->avail_addr + 4 +
+        desc_idx = virtio_read16(s, &qs->queue_iocap, qs->avail_addr + 4 +
                                  (qs->last_avail_idx & (qs->num - 1)) * 2);
-        if (!get_desc_rw_size(s, &read_size, &write_size, queue_idx, desc_idx)) {
+        if (!get_desc_rw_size(s, &qs->queue_iocap, &read_size, &write_size, queue_idx, desc_idx)) {
 #ifdef DEBUG_VIRTIO
             if (s->debug & VIRTIO_DEBUG_IO) {
                 printf("queue_notify: idx=%d read_size=%d write_size=%d\r\n",
@@ -701,6 +717,17 @@ static uint32_t virtio_mmio_read(void *opaque, uint32_t offset, int size_log2)
             val = s->queue[s->queue_sel].used_addr >> 32;
             break;
 #endif
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD0:
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD1:
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD2:
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD3:
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD0:
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD1:
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD2:
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD3:
+            // Don't leak IOcaps!
+            val = 0xffffffff;
+            break;
         case VIRTIO_MMIO_QUEUE_READY:
             val = s->queue[s->queue_sel].ready;
             break;
@@ -798,6 +825,62 @@ static void virtio_mmio_write(void *opaque, uint32_t offset,
             set_high32(&s->queue[s->queue_sel].used_addr, val);
             break;
 #endif
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD0:
+            printf("iocap word0 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.data[0] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.data[1] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.data[2] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.data[3] = (uint8_t)(val >> 24);
+            break;
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD1:
+            printf("iocap word1 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.data[4] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.data[5] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.data[6] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.data[7] = (uint8_t)(val >> 24);
+            break;
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD2:
+            printf("iocap word2 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.data[8] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.data[9] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.data[10] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.data[11] = (uint8_t)(val >> 24);
+            break;
+        case VIRTIO_MMIO_QUEUE_IOCAP_TXT_WORD3:
+            printf("iocap word3 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.data[12] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.data[13] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.data[14] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.data[15] = (uint8_t)(val >> 24);
+            break;
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD0:
+            printf("iocap sig word0 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.signature[0] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.signature[1] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.signature[2] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.signature[3] = (uint8_t)(val >> 24);
+            break;
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD1:
+            printf("iocap sig word1 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.signature[4] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.signature[5] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.signature[6] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.signature[7] = (uint8_t)(val >> 24);
+            break;
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD2:
+            printf("iocap sig word2 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.signature[8] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.signature[9] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.signature[10] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.signature[11] = (uint8_t)(val >> 24);
+            break;
+        case VIRTIO_MMIO_QUEUE_IOCAP_SIG_WORD3:
+            printf("iocap sig word3 0x%08x\n", val);
+            s->queue[s->queue_sel].queue_iocap.signature[12] = (uint8_t)(val >> 0);
+            s->queue[s->queue_sel].queue_iocap.signature[13] = (uint8_t)(val >> 8);
+            s->queue[s->queue_sel].queue_iocap.signature[14] = (uint8_t)(val >> 16);
+            s->queue[s->queue_sel].queue_iocap.signature[15] = (uint8_t)(val >> 24);
+            break;
         case VIRTIO_MMIO_STATUS:
             s->status = val;
             if (val == 0) {
@@ -1255,9 +1338,9 @@ static void virtio_net_write_packet(EthernetDevice *es, const uint8_t *buf, int 
         return;
     if (qs->last_avail_idx == qs->avail_idx)
         return;
-    desc_idx = virtio_read16(s, qs->avail_addr + 4 +
+    desc_idx = virtio_read16(s, &qs->queue_iocap, qs->avail_addr + 4 +
                              (qs->last_avail_idx & (qs->num - 1)) * 2);
-    if (get_desc_rw_size(s, &read_size, &write_size, queue_idx, desc_idx))
+    if (get_desc_rw_size(s, &qs->queue_iocap, &read_size, &write_size, queue_idx, desc_idx))
         return;
     len = s1->header_size + buf_len;
     if (len > write_size)
@@ -1359,9 +1442,9 @@ int virtio_console_get_write_len(VIRTIODevice *s)
         return 0;
     if (qs->last_avail_idx == qs->avail_idx)
         return 0;
-    desc_idx = virtio_read16(s, qs->avail_addr + 4 +
+    desc_idx = virtio_read16(s, &qs->queue_iocap, qs->avail_addr + 4 +
                              (qs->last_avail_idx & (qs->num - 1)) * 2);
-    if (get_desc_rw_size(s, &read_size, &write_size, queue_idx, desc_idx))
+    if (get_desc_rw_size(s, &qs->queue_iocap, &read_size, &write_size, queue_idx, desc_idx))
         return 0;
     return write_size;
 }
@@ -1376,7 +1459,7 @@ int virtio_console_write_data(VIRTIODevice *s, const uint8_t *buf, int buf_len)
         return 0;
     if (qs->last_avail_idx == qs->avail_idx)
         return 0;
-    desc_idx = virtio_read16(s, qs->avail_addr + 4 +
+    desc_idx = virtio_read16(s, &qs->queue_iocap, qs->avail_addr + 4 +
                              (qs->last_avail_idx & (qs->num - 1)) * 2);
     memcpy_to_queue(s, queue_idx, desc_idx, 0, buf, buf_len);
     virtio_consume_desc(s, queue_idx, desc_idx, buf_len);
@@ -1532,7 +1615,7 @@ static int virtio_input_queue_event(VIRTIODevice *s,
 
     if (qs->last_avail_idx == qs->avail_idx)
         return -1;
-    desc_idx = virtio_read16(s, qs->avail_addr + 4 +
+    desc_idx = virtio_read16(s, &qs->queue_iocap, qs->avail_addr + 4 +
                              (qs->last_avail_idx & (qs->num - 1)) * 2);
     printf("send: queue_idx=%d desc_idx=%d\r\n", queue_idx, desc_idx);
     memcpy_to_queue(s, queue_idx, desc_idx, 0, buf, buf_len);

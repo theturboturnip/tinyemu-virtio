@@ -58,6 +58,8 @@ set(TINYEMU_SOURCES
   slirp/tftp.h
   slirp/udp.c
   slirp/udp.h
+  iocap/librust_caps_c.h
+  iocap/librust_caps_c_panic.c
   # Don't override our main!
   #build_filelist.c
   cutils.c
@@ -84,8 +86,17 @@ set(TINYEMU_SOURCES
   loadelf.h
   )
 
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
+set(IOCAP_LIB ${CMAKE_SOURCE_DIR}/src/iocap/x86_64-unknown-none/librust_caps_c.a)
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+set(IOCAP_LIB ${CMAKE_SOURCE_DIR}/src/iocap/aarch64-unknown-none/librust_caps_c.a)
+else()
+message(FATAL_ERROR "cannot compile with iocaplib on this platform")
+endif()
+
 add_library(tinyemu ${TINYEMU_SOURCES})
-target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES})
+target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES} ${IOCAP_LIB})
 
 add_executable(fmem_virtio_host
   fpga.h

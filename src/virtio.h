@@ -29,6 +29,8 @@
 #include "iomem.h"
 #include "pci.h"
 
+#include "iocap/librust_caps_c.h"
+
 #define VIRTIO_PAGE_SIZE 4096
 
 #if defined(EMSCRIPTEN)
@@ -64,7 +66,7 @@ void virtio_stop_pending_notify_thread(void);
 void virtio_join_pending_notify_thread(void);
 void virtio_reset(VIRTIODevice *s);
 
-void virtio_dma_init(void (*dma_read)(virtio_phys_addr_t, uint8_t*, size_t), void (*dma_write)(virtio_phys_addr_t, const uint8_t*, size_t));
+void virtio_dma_init(void (*dma_read)(CCap2024_02*, virtio_phys_addr_t, uint8_t*, size_t), void (*dma_write)(CCap2024_02*, virtio_phys_addr_t, const uint8_t*, size_t));
 
 /* block device */
 
