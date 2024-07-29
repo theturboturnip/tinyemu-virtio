@@ -7,7 +7,7 @@ include_directories(.)
 include_directories(slirp)
 
 # optimization -O2, warnings -Wall, debug mode -g, and some extra #defines that probably aren't needed (e.g. clang always defines _GNU_SOURCE) - likely a holdover from the original tinyemu project
-set(CMAKE_C_FLAGS "-O2 -Wall -g -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE" )
+set(CMAKE_C_FLAGS "-O2 -Wall -g -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE ${CMAKE_C_FLAGS}" )
 # enable SLIRP by default
 set(CMAKE_C_FLAGS "-DCONFIG_SLIRP ${CMAKE_C_FLAGS}")
 
