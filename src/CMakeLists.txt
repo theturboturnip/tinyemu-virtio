@@ -59,7 +59,7 @@ set(TINYEMU_SOURCES
   slirp/udp.c
   slirp/udp.h
   iocap/librust_caps_c.h
-  iocap/librust_caps_c_panic.c
+  iocap/librust_caps_c_panic.cpp
   # Don't override our main!
   #build_filelist.c
   cutils.c
@@ -95,8 +95,17 @@ else()
 message(FATAL_ERROR "cannot compile with iocaplib on this platform")
 endif()
 
+# The iocap library depends on someone else defining an external function ccap_panic_write_utf8.
+# tinyemu defines this.
+# We need to tell CMake that iocap depends on tinyemu, otherwise we get link errors.
+# CMake will handle the circular dependency.
+add_library(iocap STATIC IMPORTED)
+set_property(TARGET iocap PROPERTY IMPORTED_LOCATION ${IOCAP_LIB})
+set_target_properties(iocap PROPERTIES PREFIX lib)
+target_link_libraries(iocap INTERFACE tinyemu)
+
 add_library(tinyemu ${TINYEMU_SOURCES})
-target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES} ${IOCAP_LIB})
+target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES} iocap)
 
 add_executable(fmem_virtio_host
   fpga.h

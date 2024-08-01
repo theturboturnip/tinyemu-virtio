@@ -143,12 +143,99 @@ typedef struct {
 #define VRING_DESC_F_WRITE      2
 #define VRING_DESC_F_INDIRECT   4
 
+#define IOCAP_VDESC 1
+
+#ifdef IOCAP_VDESC
+
+/**
+ * Retrofit virtio descriptor behaviour onto CCap2024_02.
+ * 
+ */
+
+typedef CCap2024_02 VIRTIODesc;
+
+static inline __attribute__((always_inline, pure)) uint64_t vdesc_addr(VIRTIODesc* desc) {
+    uint64_t base = 0;
+    if (ccap_read_range(desc, &base, NULL, NULL) != CCapResult_Success) {
+        fprintf(stderr, "Failed to get vdesc_addr\n");
+    }
+    return base;
+}
+static inline __attribute__((always_inline, pure)) uint32_t vdesc_len(VIRTIODesc* desc) {
+    uint64_t len = 0;
+    if (ccap_read_range(desc, NULL, &len, NULL) != CCapResult_Success) {
+        fprintf(stderr, "Failed to get vdesc_len\n");
+    } else if (len > 0xFFFFFFFF) {
+        fprintf(stderr, "vdesc_len 0x%016lx greater than 32-bit\n", len);
+    }
+    return len;
+}
+static inline __attribute__((always_inline, pure)) uint16_t vdesc_flags(VIRTIODesc* desc) {
+    uint16_t flags = 0;
+
+    CCapPerms perms = CCapPerms_ReadWrite;
+    if (ccap_read_perms(desc, &perms) != CCapResult_Success) {
+        fprintf(stderr, "Failed to get perms\n");
+    }
+    if (perms == CCapPerms_ReadWrite || perms == CCapPerms_Write) {
+        flags |= VRING_DESC_F_WRITE;
+    }
+
+    // Pack the other two bits into secret_key_id. 
+    // This is 23-bits long, but the current setup only uses 255 keys i.e. 8 bits.
+    // Thus, we can take up 15 bits. 2 for the next|indirect flags, 13 for the 'next' field.
+    // |- flags[1:0] -|- next[12:0] -|- key[7:0] -|
+    //     [22:21]         [20:8]         [7:0]
+
+    uint32_t secret_key_id = 0;
+    if (ccap_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
+        fprintf(stderr, "Failed to get secret_key_id\n");
+    }
+    if ((secret_key_id >> 22) & 1) {
+        flags |= VRING_DESC_F_INDIRECT;
+    }
+    if ((secret_key_id >> 21) & 1) {
+        flags |= VRING_DESC_F_NEXT;
+    }
+
+    return flags;
+}
+static inline __attribute__((always_inline, pure)) uint16_t vdesc_next(VIRTIODesc* desc) {
+    // 'next' is packed into secret_key_id. 
+    // This is 23-bits long, but the current setup only uses 255 keys i.e. 8 bits.
+    // Thus, we can take up 15 bits. 2 for the next|indirect flags, 13 for the 'next' field.
+    // |- flags[1:0] -|- next[12:0] -|- key[7:0] -|
+    //     [22:21]         [20:8]         [7:0]
+
+    uint32_t secret_key_id = 0;
+    if (ccap_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
+        fprintf(stderr, "Failed to get secret_key_id\n");
+    }
+    return (secret_key_id >> 8) & 0x1FFF;
+}
+
+#else
+
 typedef struct {
     uint64_t addr;
     uint32_t len;
     uint16_t flags; /* VRING_DESC_F_x */
     uint16_t next;
 } VIRTIODesc;
+
+static inline __attribute__((always_inline, pure)) uint64_t vdesc_addr(VIRTIODesc* desc) {
+    return desc->addr;
+}
+static inline __attribute__((always_inline, pure)) uint32_t vdesc_len(VIRTIODesc* desc) {
+    return desc->len;
+}
+static inline __attribute__((always_inline, pure)) uint16_t vdesc_flags(VIRTIODesc* desc) {
+    return desc->flags;
+}
+static inline __attribute__((always_inline, pure)) uint16_t vdesc_next(VIRTIODesc* desc) {
+    return desc->next;
+}
+#endif
 
 /* return < 0 to stop the notification (it must be manually restarted
    later), 0 if OK */
@@ -395,7 +482,7 @@ static int get_desc(VIRTIODevice *s, CCap2024_02* iocap, VIRTIODesc *desc,
 
 static void log_desc(VIRTIODesc* desc)
 {
-    printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", desc->addr, desc->len, desc->flags & VRING_DESC_F_WRITE, desc->flags & VRING_DESC_F_NEXT, desc->next);
+    printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", vdesc_addr(desc), vdesc_len(desc), vdesc_flags(desc) & VRING_DESC_F_WRITE, vdesc_flags(desc) & VRING_DESC_F_NEXT, vdesc_next(desc));
 }
 
 static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
@@ -418,11 +505,11 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
         f_write_flag = VRING_DESC_F_WRITE;
         /* find the first write descriptor */
         for(;;) {
-            if ((desc.flags & VRING_DESC_F_WRITE) == f_write_flag)
+            if ((vdesc_flags(&desc) & VRING_DESC_F_WRITE) == f_write_flag)
                 break;
-            if (!(desc.flags & VRING_DESC_F_NEXT))
+            if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
                 return -1;
-            desc_idx = desc.next;
+            desc_idx = vdesc_next(&desc);
             get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
             log_desc(&desc);
         }
@@ -432,41 +519,43 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 
     /* find the descriptor at offset */
     for(;;) {
-        if ((desc.flags & VRING_DESC_F_WRITE) != f_write_flag)
+        if ((vdesc_flags(&desc) & VRING_DESC_F_WRITE) != f_write_flag)
             return -1;
-        if (offset < desc.len)
+        if (offset < vdesc_len(&desc))
             break;
-        if (!(desc.flags & VRING_DESC_F_NEXT))
+        if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
             return -1;
-        desc_idx = desc.next;
-        offset -= desc.len;
+        desc_idx = vdesc_next(&desc);
+        offset -= vdesc_len(&desc);
         get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
     for(;;) {
-        l = min_int(count, desc.len - offset);
+        l = min_int(count, vdesc_len(&desc) - offset);
 	    printf("memcpy_to_from_queue: buf: %p, desc.addr + offset: %lx, count: %d, desc.len: %d, offset: %d \r\n",
-			buf, (desc.addr + offset), count, desc.len, offset);
-        printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", desc.addr, desc.len, desc.flags & VRING_DESC_F_WRITE, desc.flags & VRING_DESC_F_NEXT, desc.next);
+			buf, (vdesc_addr(&desc) + offset), count, vdesc_len(&desc), offset);
+        printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", vdesc_addr(&desc), vdesc_len(&desc), vdesc_flags(&desc) & VRING_DESC_F_WRITE, vdesc_flags(&desc) & VRING_DESC_F_NEXT, vdesc_next(&desc));
+        CCap2024_02* dma_iocap = queue_iocap;
+        #ifdef IOCAP_VDESC
+        dma_iocap = &desc;
+        #endif
         if (to_queue)
-            // TODO should use a different capability!
-            virtio_memcpy_to_ram(s, queue_iocap, desc.addr + offset, buf, l);
+            virtio_memcpy_to_ram(s, dma_iocap, vdesc_addr(&desc) + offset, buf, l);
         else
-            // TODO should use a different capability!
-            virtio_memcpy_from_ram(s, queue_iocap, buf, desc.addr + offset, l);
+            virtio_memcpy_from_ram(s, dma_iocap, buf, vdesc_addr(&desc) + offset, l);
         count -= l;
         if (count == 0)
             break;
         printf("memcpy_to_from_queue has %d remaining\n", count);
         offset += l;
         buf += l;
-        if (offset == desc.len) {
-            if (!(desc.flags & VRING_DESC_F_NEXT))
+        if (offset == vdesc_len(&desc)) {
+            if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
                 return -1;
-            desc_idx = desc.next;
+            desc_idx = vdesc_next(&desc);
             get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
-            if ((desc.flags & VRING_DESC_F_WRITE) != f_write_flag)
+            if ((vdesc_flags(&desc) & VRING_DESC_F_WRITE) != f_write_flag)
                 return -1;
             offset = 0;
         }
@@ -526,23 +615,23 @@ static int get_desc_rw_size(VIRTIODevice *s, CCap2024_02* iocap,
     log_desc(&desc);
 
     for(;;) {
-        if (desc.flags & VRING_DESC_F_WRITE)
+        if (vdesc_flags(&desc) & VRING_DESC_F_WRITE)
             break;
-        read_size += desc.len;
-        if (!(desc.flags & VRING_DESC_F_NEXT))
+        read_size += vdesc_len(&desc);
+        if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
             goto done;
-        desc_idx = desc.next;
+        desc_idx = vdesc_next(&desc);
         get_desc(s, iocap, &desc, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
     for(;;) {
-        if (!(desc.flags & VRING_DESC_F_WRITE))
+        if (!(vdesc_flags(&desc) & VRING_DESC_F_WRITE))
             return -1;
-        write_size += desc.len;
-        if (!(desc.flags & VRING_DESC_F_NEXT))
+        write_size += vdesc_len(&desc);
+        if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
             break;
-        desc_idx = desc.next;
+        desc_idx = vdesc_next(&desc);
         get_desc(s, iocap, &desc, queue_idx, desc_idx);
         log_desc(&desc);
     }
