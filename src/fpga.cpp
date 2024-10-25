@@ -90,6 +90,8 @@ public:
         }
         fprintf(stdout, "DMA fd: %d\n", dma_fd);
         fflush(stdout);
+        // Set the DMA offset/address selector to 0
+        fmem_write64(selector_fd, 0, 0);
         fmem_write32(mmio_fd, VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
         // Opem IRQ fmem device
         // This is a couple registers that allow setting and clearing interrupts for the guest.
@@ -115,7 +117,7 @@ public:
     dma_set_window, dma_read8, dma_read32, dma_write8, dma_write32 all assume the dma_mutex have been taken before calling them.
     */
     void dma_set_iocap(CCap2024_02* iocap);
-    uint32_t dma_set_window(uint64_t addr); // Returns the offset to use when fmem-ing the DMA window
+    uint32_t dma_set_window(uint64_t addr, bool force=false); // Returns the offset to use when fmem-ing the DMA window
     uint8_t dma_read8(uint64_t raddr);
     uint32_t dma_read32(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
@@ -203,7 +205,7 @@ void FPGA_io::dma_set_iocap(CCap2024_02* iocap) {
     }
 }
 
-// A bitmask indicating the width of the DMA window - here, 32 bits
+// A bitmask indicating the width of the DMA window - here, 30 bits
 #define DMA_WINDOW_MASK 0x3FFFFFFFu
 // fmem_{read,write} truncate the address to 32-bits (thanks, C++ numeric coercion >:P)
 // so dma_set_window returns a truncated address masked by the window
@@ -215,10 +217,10 @@ static_assert(DMA_WINDOW_MASK <= std::numeric_limits<uint32_t>::max());
 // => the first time we check (offset != last_offset) it will always evaluate to false.
 static uint64_t last_offset = DMA_WINDOW_MASK; 
 
-uint32_t FPGA_io::dma_set_window(uint64_t addr) {
+uint32_t FPGA_io::dma_set_window(uint64_t addr, bool force) {
     // Assuming DMA mutex has been taken
     uint64_t offset = addr & (~DMA_WINDOW_MASK);
-    if (offset != last_offset) {
+    if (force || (offset != last_offset)) {
         if (selector_fd >= 0) {
             printf("writing address selector (write) 0x0 == 0x%" PRIx64 "\n",
                     offset);
@@ -452,6 +454,10 @@ void FPGA::dma_read(CCap2024_02* iocap, uint64_t addr, uint8_t *data, size_t siz
     std::lock_guard<std::mutex> lock(dma_mutex);
     printf("dma_read addr: %016lx size: %lu\r\n", addr, size);
     io->dma_set_iocap(iocap);
+    // Force set the DMA window in case we're running on hardware without IOcaps
+    // In that case the iocap writes may be to a wraparound section and end up overwriting the window.
+    // Thus, force-reset the dma window
+    io->dma_set_window(addr, true);
     size_t i = 0;
     if ((addr & 3) == 0) {
         for (; i<size; i+=4) {
@@ -470,6 +476,10 @@ void FPGA::dma_write(CCap2024_02* iocap, uint64_t addr, const uint8_t *data, siz
     std::lock_guard<std::mutex> lock(dma_mutex);
     printf("dma_write addr: %016lx size: %lu data[0]: 0x%x\r\n", addr, size, data[0]);
     io->dma_set_iocap(iocap);
+    // Force set the DMA window in case we're running on hardware without IOcaps
+    // In that case the iocap writes may be to a wraparound section and end up overwriting the window.
+    // Thus, force-reset the dma window
+    io->dma_set_window(addr, true);
     size_t i = 0;
     if ((addr & 3) == 0) {
         for (; i < size; i += 4) {
