@@ -1282,56 +1282,56 @@ static int virtio_block_recv_request(VIRTIODevice *s, int queue_idx,
     uint8_t *buf, buf1[1];
     int len, ret;
 
-    printf("virtio_block_recv_request\r\n");
+    printf("BLK virtio_block_recv_request\r\n");
 
     if (s1->req_in_progress)
         return -1;
-    printf("copying header\r\n");
+    printf("BLK copying header\r\n");
     if (memcpy_from_queue(s, &h, queue_idx, desc_idx, 0, sizeof(h)) < 0)
         return 0;
-    printf("copied header successfully\r\n");
+    printf("BLK copied header successfully\r\n");
     s1->req.type = h.type;
     s1->req.queue_idx = queue_idx;
     s1->req.desc_idx = desc_idx;
     switch(h.type) {
     case VIRTIO_BLK_T_IN:
-        printf("BLK_T_IN\r\n");
+        printf("BLK BLK_T_IN\r\n");
         s1->req.buf = malloc(write_size);
         s1->req.write_size = write_size;
-        printf("calling read_async\r\n");
+        printf("BLK calling read_async\r\n");
         ret = bs->read_async(bs, h.sector_num, s1->req.buf,
                              (write_size - 1) / SECTOR_SIZE,
                              virtio_block_req_cb, s);
         if (ret > 0) {
-            printf("async read\r\n");
+            printf("BLK async read\r\n");
             /* asyncronous read */
             s1->req_in_progress = TRUE;
         } else {
-            printf("sync read\r\n");
+            printf("BLK sync read\r\n");
             virtio_block_req_end(s, ret);
         }
         break;
     case VIRTIO_BLK_T_OUT:
-        printf("BLK_T_OUT\r\n");
+        printf("BLK BLK_T_OUT\r\n");
         assert(write_size >= 1);
         len = read_size - sizeof(h);
         buf = malloc(len);
         memcpy_from_queue(s, buf, queue_idx, desc_idx, sizeof(h), len);
-        printf("got write data from queue, calling write_async\r\n");
+        printf("BLK got write data from queue, calling write_async\r\n");
         ret = bs->write_async(bs, h.sector_num, buf, len / SECTOR_SIZE,
                               virtio_block_req_cb, s);
         free(buf);
         if (ret > 0) {
-            printf("async write\r\n");
+            printf("BLK async write\r\n");
             /* asyncronous write */
             s1->req_in_progress = TRUE;
         } else {
-            printf("sync write\r\n");
+            printf("BLK sync write\r\n");
             virtio_block_req_end(s, ret);
         }
         break;
     default:
-        printf("VIRTIO_BLK_S_UNSUPP %d\r\n", h.type);
+        printf("BLK VIRTIO_BLK_S_UNSUPP %d\r\n", h.type);
         buf1[0] = VIRTIO_BLK_S_UNSUPP;
         memcpy_to_queue(s, queue_idx, desc_idx, 0, buf1, sizeof(buf1));
         virtio_consume_desc(s, queue_idx, desc_idx, 1);
