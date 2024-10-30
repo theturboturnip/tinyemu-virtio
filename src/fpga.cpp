@@ -635,6 +635,11 @@ void *FPGA::process_stdin_thread(void *null_arg)
 void FPGA::start_io()
 {
     printf("start_io\r\n");
+
+    // TODO: This is an undocumented blob that seems to be useless, incomprehensible, and brittle.
+    // With it enabled, it causes the entire process to just die if run on the FPGA Arm in FreeBSD in interactive-mode(?)
+    // So comment it out
+    /*
     if (!done_termios) {
         struct termios stdin_termios;
         struct termios stdout_termios;
@@ -667,6 +672,7 @@ void FPGA::start_io()
         pipe(virtio_stdio_pipe);
         virtio_devices.set_virtio_stdin_fd(virtio_stdio_pipe[0]);
     }
+    */
 
     virtio_devices.start();
 }
@@ -675,9 +681,12 @@ void FPGA::stop_io(int code)
 {
     exit_code = code;
 
+    // As in start_io, comment out seemingly useless undocumented weirdness
+    /*
     char dummy = 'X';
     ::write(stop_stdin_pipe[1], &dummy, sizeof(dummy));
     close(stop_stdin_pipe[1]);
+    */
 
     virtio_devices.stop();
 }
