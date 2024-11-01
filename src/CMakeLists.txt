@@ -1,20 +1,26 @@
 
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 11)
 
 include_directories(.)
 include_directories(slirp)
 
-set(CMAKE_C_FLAGS "-O2 -Wall -Werror -g -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -MMD" )
-set(CMAKE_C_FLAGS "-D_GNU_SOURCE -DCONFIG_VERSION=\"2019-12-21\" ${CMAKE_C_FLAGS}")
+# optimization -O2, warnings -Wall, debug mode -g, and some extra #defines that probably aren't needed (e.g. clang always defines _GNU_SOURCE) - likely a holdover from the original tinyemu project
+set(CMAKE_C_FLAGS "-O2 -Wall -g -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE" )
+# enable SLIRP by default
 set(CMAKE_C_FLAGS "-DCONFIG_SLIRP ${CMAKE_C_FLAGS}")
-set(CMAKE_C_FLAGS "-DCONFIG_RISCV_MAX_XLEN=64 -DMAX_XLEN=64 ${CMAKE_C_FLAGS}")
 
 if (EXISTS "/usr/bin/curl-config")
 set(CMAKE_C_FLAGS "-DCONFIG_FS_NET ${CMAKE_C_FLAGS}")
 set(FS_NET_SOURCES block_net.c fs_net.c fs_wget.c fs_wget.h)
 set(FS_NET_LIBRARIES -lcurl -lssl -lcrypto)
 endif()
+
+# Give C++ the same #defines and options as C
+set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${CMAKE_CXX_FLAGS}")
+# *always* link libstdc++, compilation fails on our CI otherwise.
+set(CMAKE_EXE_LINKER_FLAGS "-lstdc++")
 
 set(TINYEMU_SOURCES
   slirp/bootp.c

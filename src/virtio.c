@@ -379,10 +379,15 @@ static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
-        for (int i=0; i<count; i++) buf[i] = fmem_read8(virtio_dma_fd, addr+i);
-        printf("virtio_memcpy_from_ram phys_addr: %lx ", addr);
-        for (int i=0; i<count; i++) printf("buf[%d]: %x ", i, buf[i]);
-        printf("count: %d dma_fd: %x \r\n", count, virtio_dma_fd);
+        //printf("virtio_memcpy_from_ram phys_addr: %lx ", addr);
+	int i=0;
+	if ((addr & 0x3) == 0) {
+		uint32_t * buf32 = (uint32_t *)buf;
+        	for (; (i+3)<count; i+=4) buf32[i/4] = fmem_read32(virtio_dma_fd, addr+i);
+	}
+        for (; i<count; i++) buf[i] = fmem_read8(virtio_dma_fd, addr+i);
+        //printf("count: %d dma_fd: %x \r\n", count, virtio_dma_fd);
+        //for (int i=0; i<count; i++) printf("buf[%d]: %x ", i, buf[i]);
         return 0;
     } else {
         printf("virtio_memcpy_from_ram bad dma_fd: %x \r\n", virtio_dma_fd);
@@ -395,8 +400,13 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr,
 {
     addr -= FMEM_HOST_CACHED_MEM_BASE;
     if (virtio_dma_fd > 0) {
+	int i=0;
         printf("virtio_memcpy_to_ram phys_addr: %lx buf[0]: %x count: %d dma_fd: %x \r\n", addr, buf[0], count, virtio_dma_fd);
-        for (int i=0; i<count; i++) fmem_write8(virtio_dma_fd, addr+i, buf[i]);
+	if ((addr & 0x3) == 0) {
+		uint32_t * buf32 = (uint32_t *)buf;
+		for (; (i+3)<count; i+=4) fmem_write32(virtio_dma_fd, addr+i, buf32[i/4]);
+	}
+        for (; i<count; i++) fmem_write8(virtio_dma_fd, addr+i, buf[i]);
         return 0;
     } else {
         printf("virtio_memcpy_to_ram bad dma_fd: %x \r\n", virtio_dma_fd);
@@ -457,6 +467,8 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 
     for(;;) {
         l = min_int(count, desc.len - offset);
+	printf("memcpy_to_from_queue: buf: %p, desc.addr + offset: %lx, count: %d, desc.len: %d, offset: %d \r\n",
+			buf, (desc.addr + offset), count, desc.len, offset);
         if (to_queue)
             virtio_memcpy_to_ram(s, desc.addr + offset, buf, l);
         else
@@ -560,6 +572,8 @@ static void queue_notify(VIRTIODevice *s, int queue_idx)
     QueueState *qs = &s->queue[queue_idx];
     uint16_t avail_idx;
     int desc_idx, read_size, write_size;
+
+    printf("queue_notify ready: %d\r\n", (s->status & 4));
 
     printf("queue_notify manual_recv: %d\r\n", qs->manual_recv);
 
@@ -1069,6 +1083,7 @@ static void virtio_block_req_end(VIRTIODevice *s, int ret)
     int desc_idx = s1->req.desc_idx;
     uint8_t *buf, buf1[1];
 
+    printf("VIRTIO BLOCK REQ END: req.type: %x, req.write_size: %x, req.buf: %lx \r\n", s1->req.type, s1->req.write_size, (uint64_t)s1->req.buf);
     switch(s1->req.type) {
     case VIRTIO_BLK_T_IN:
         write_size = s1->req.write_size;
@@ -2792,7 +2807,7 @@ static void *pending_notify_worker(void *opaque)
              * request we didn't look at, and then immediately clobber that bit
              * being set.
              */
-            uint32_t notify = atomic_exchange_explicit(&s->pending_queue_notify, 0, memory_order_acquire);
+	    uint32_t notify = atomic_exchange_explicit(&s->pending_queue_notify, 0, memory_order_acquire);
             for (int j = 0; j < 32 && notify; j++) {
                 if (notify & (1u << j)) {
                     queue_notify(s, j);

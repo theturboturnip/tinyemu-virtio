@@ -24,8 +24,6 @@
 
 #include "virtio.h"
 
-CharacterDevice *console_init(BOOL allow_ctrlc);
-
 typedef enum {
     BF_MODE_RO,
     BF_MODE_RW,
@@ -33,5 +31,14 @@ typedef enum {
 } BlockDeviceModeEnum;
 BlockDevice *block_device_init(const char *filename, BlockDeviceModeEnum mode);
 
+#ifdef CONFIG_SLIRP
 EthernetDevice *slirp_open(void);
+#endif
+
+#ifndef _WIN32
+CharacterDevice *console_init(BOOL allow_ctrlc);
+#endif
+
+#ifdef CONFIG_TUN
 EthernetDevice *tun_open(const char *tun_iface);
+#endif /* CONFIG_TUN */
