@@ -50,6 +50,7 @@ struct virtual_device_request {
 class DmaManager;
 class FPGA_io;
 
+// A class holding all FPGA-related state. A singleton, with storage defined at the bottom of this file.
 class FPGA {
     sem_t sem_misc_response;
     FPGA_io *io;
@@ -70,6 +71,9 @@ class FPGA {
 
     std::mutex misc_request_mutex;
     std::mutex stdin_mutex;
+    // Mutex which protects DMA - DMAs are performed through a window selected by a `selector_fd`,
+    // which is global state. DMAs can thus not be attempted at the same time, in case their selector values interfere.
+    std::mutex dma_mutex;
     std::queue<uint8_t> stdin_queue;
     int stop_stdin_pipe[2];
     pthread_t stdin_thread;
@@ -89,8 +93,8 @@ public:
     //void unmap_pcis_dma();
     void open_dma();
     void close_dma();
-    void dma_read(uint32_t addr, uint8_t * data, size_t num_bytes);
-    void dma_write(uint32_t addr, uint8_t *data, size_t num_bytes);
+    void dma_read(uint64_t addr, uint8_t * data, size_t num_bytes);
+    void dma_write(uint64_t addr, const uint8_t *data, size_t num_bytes);
 
     void irq_set_levels(uint32_t w1s);
     void irq_clear_levels(uint32_t w1c);
@@ -115,8 +119,21 @@ public:
 
  private:
     void process_stdin();
-    static void *process_stdin_thread(void *opaque);
+    // Callback for pthread_create that calls process_stdin() on the FPGA singleton.
+    static void *process_stdin_thread(void *null_arg);
     static void reset_termios();
     void sbcs_wait();
-    
 };
+
+// A pointer to the singleton FPGA.
+// This is globally initialized to `nullptr` in fpga.cpp,
+// then filled in with a valid FPGA pointer by fpga_singleton_init().
+extern FPGA *fpga;
+// Initialize the FPGA singleton with the given arguments.
+void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface);
+// Call dma_read on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
+// Assumes the FPGA singleton has been initialized, and should not be called until fpga_singleton_init() has been called.
+extern "C" void fpga_singleton_dma_read(uint64_t addr, uint8_t * data, size_t num_bytes);
+// Call dma_write on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
+// Assumes the FPGA singleton has been initialized, and should not be called until fpga_singleton_init() has been called.
+extern "C" void fpga_singleton_dma_write(uint64_t addr, const uint8_t * data, size_t num_bytes);

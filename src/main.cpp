@@ -59,8 +59,6 @@ void usage(const char *name)
     }
 }
 
-FPGA *fpga;
-
 int main(int argc, char * const *argv)
 {
     const char *bootrom_filename = 0;
@@ -163,18 +161,24 @@ int main(int argc, char * const *argv)
     while (optind < argc) {
         elf_files.push_back(argv[optind++]);
     }
-    if (!bootrom_filename && !elf_files.size()) {
-        usage(argv[0]);
-        return -1;
-    }
+    // A vestige from a previous time: bootrom_filename and elf_files are not used for the rest of this program.
+    // if (!bootrom_filename && !elf_files.size()) {
+    //     usage(argv[0]);
+    //     return -1;
+    // }
 
     // allocate a memory object for Rom
+    // Samuel note: This is also unused/uninitialized.
+    // Rom is mapped into some of the MMIO memory space (see FPGA::emulated_mmio_respond)
+    // and effectively leaks uninitialized memory to the consumer MMIO.
     size_t rom_alloc_sz = 1024*1024;
     uint8_t *romBuffer = (uint8_t *)malloc(rom_alloc_sz);
     debugLog("romBuffer=%lx\r\n", (long)romBuffer);
 
     Rom rom = { BOOTROM_BASE, BOOTROM_LIMIT, (uint64_t *)romBuffer };
-    fpga = new FPGA(1, rom, tun_iface); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
+
+    // Initialize the FPGA singleton before we use it
+    fpga_singleton_init(1, rom, tun_iface); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
     fpga->set_uart_enabled(uart_enabled);
 
     for (std::string block_file: block_files) {

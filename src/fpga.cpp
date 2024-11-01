@@ -16,17 +16,35 @@
 static int debug_virtio = 0;
 static int debug_stray_io = 1;
 
-extern FPGA *fpga;
+// Assign the initial value of the FPGA singleton to null.
+FPGA *fpga = NULL;
+// This function is responsible for setting up the FPGA singleton
+void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface) {
+    if (fpga != NULL) {
+        fprintf(stderr, "ERROR: Called init_fpga_singleton() multiple times\r\n");
+        abort();
+    }
+    fpga = new FPGA(id, rom, tun_iface);
+}
+// Call dma_read on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
+// Can be passed to C interfaces as a plain function pointer.
+void fpga_singleton_dma_read(uint64_t addr, uint8_t * data, size_t num_bytes) {
+    fpga->dma_read(addr, data, num_bytes);
+}
+// Call dma_write on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
+// Can be passed to C interfaces as a plain function pointer.
+void fpga_singleton_dma_write(uint64_t addr, const uint8_t * data, size_t num_bytes) {
+    fpga->dma_write(addr, data, num_bytes);
+}
 
 class FPGA_io {
 private:
-    FPGA *fpga;
     int mmio_fd;
     int dma_fd;
     int irq_fd;
     int selector_fd;
 public:
-    FPGA_io(int id, FPGA *fpga) : fpga(fpga), mmio_fd(-1), dma_fd(-1), irq_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
+    FPGA_io(int id) : mmio_fd(-1), dma_fd(-1), irq_fd(-1) { // XXX What is "id" for? What was AWSP2_ResponseWrapper?
         // Initialise Memory-mapped IO
         // Open FMEM device for the management interface of the "Virtual Device",
         // a peripheral that captures reads and writes on one interface and provides
@@ -39,6 +57,7 @@ public:
             filename[255] = '\0';
         }
         mmio_fd = open(filename, O_RDWR);
+        fprintf(stdout, "MMIO fd: %d\n", mmio_fd);
         // Open address window selector fmem device
         fmemdev = getenv("RISCV_ADDRESS_SELECTOR_FMEM_DEV");
         if (fmemdev) {
@@ -52,6 +71,7 @@ public:
             fprintf(stderr, "ERROR: Failed to open address selector device file: %s\r\n", strerror(errno));
             abort();
         }
+        fprintf(stdout, "selector fd: %d\n", selector_fd);
         // Open DMA fmem file descriptor.
         // This one allows access to coherent shared memory with the guest.
         fmemdev = getenv("RISCV_DMA_FMEM_DEV");
@@ -66,6 +86,8 @@ public:
             fprintf(stderr, "ERROR: Failed to open fmem dma device file: %s\r\n", strerror(errno));
             abort();
         }
+        fprintf(stdout, "DMA fd: %d\n", dma_fd);
+        fflush(stdout);
         fmem_write32(mmio_fd, VD_ENABLE, 1); // Enable the virtual device.  That is, start capturing all reads and writes.
         // Opem IRQ fmem device
         // This is a couple registers that allow setting and clearing interrupts for the guest.
@@ -87,11 +109,15 @@ public:
     //void close_dma();
     int get_dma_fd() { return dma_fd; }
     int get_irq_fd() { return irq_fd; }
-    void dma_set_window(uint64_t addr);
+    /*
+    dma_set_window, dma_read8, dma_read32, dma_write8, dma_write32 all assume the dma_mutex have been taken before calling them.
+    */
+    uint32_t dma_set_window(uint64_t addr); // Returns the offset to use when fmem-ing the DMA window
     uint8_t dma_read8(uint64_t raddr);
     uint32_t dma_read32(uint64_t raddr);
     void dma_write8(uint64_t waddr, uint8_t wdata);
     void dma_write32(uint64_t waddr, uint32_t wdata);
+
     void emulated_mmio_respond();
     void console_putchar(uint64_t wdata);
     virtual void uart_tohost(uint8_t ch);
@@ -104,21 +130,30 @@ void FPGA_io::close_dma()
 }
 */
 
-#define MEM_MASK_1GB 0x3FFFFFFF
-uint64_t last_offset;
-void FPGA_io::dma_set_window(uint64_t addr) {
-    uint64_t offset = addr & (~MEM_MASK_1GB);
+// A bitmask indicating the width of the DMA window - here, 32 bits
+#define DMA_WINDOW_MASK 0x3FFFFFFFu
+// fmem_{read,write} truncate the address to 32-bits (thanks, C++ numeric coercion >:P)
+// so dma_set_window returns a truncated address masked by the window
+// => the DMA window must be at most 32-bits wide.
+static_assert(DMA_WINDOW_MASK <= std::numeric_limits<uint32_t>::max());
+
+// Keep a static to remember what the last DMA offset is.
+// It will always have the window-bits masked out, so set the initial value to have those bits set
+// => the first time we check (offset != last_offset) it will always evaluate to false.
+static uint64_t last_offset = DMA_WINDOW_MASK; 
+
+uint32_t FPGA_io::dma_set_window(uint64_t addr) {
+    // Assuming DMA mutex has been taken
+    uint64_t offset = addr & (~DMA_WINDOW_MASK);
     if (offset != last_offset) {
         if (selector_fd >= 0) {
             printf("writing address selector (write) 0x0 == 0x%" PRIx64 "\n",
                     offset);
-            int error = fmem_write(0, 4, (uint32_t)offset, selector_fd);
+            int error = fmem_write64(selector_fd, 0, offset);
             if (error != 0) {
                 printf("error with address selector (write) 0x0 == 0x%" PRIx64 "\n",
                        offset);
             }
-            // Only support 32-bit address space for the moment.  Unclear if the top-half of the selector is supported, actually...
-            //error = fmem_write(4, 4, (uint32_t)(offset>>32), address_selector_fd);
             last_offset = offset;
         }
         else {
@@ -126,11 +161,14 @@ void FPGA_io::dma_set_window(uint64_t addr) {
             abort();
         };
     }
+    // Return the masked address, which is always within the window size.
+    return (uint32_t)(addr & DMA_WINDOW_MASK);
 }
 
 uint8_t FPGA_io::dma_read8(uint64_t raddr) {
-    dma_set_window(raddr);
-    if (dma_fd >= 0) return fmem_read8(dma_fd, raddr);
+    // Assuming DMA mutex has been taken
+    uint32_t dma_offset = dma_set_window(raddr);
+    if (dma_fd >= 0) return fmem_read8(dma_fd, dma_offset);
     else {
         fprintf(stderr, "ERROR: Attempted read from unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -138,8 +176,9 @@ uint8_t FPGA_io::dma_read8(uint64_t raddr) {
 }
 
 uint32_t FPGA_io::dma_read32(uint64_t raddr) {
-    dma_set_window(raddr);
-    if (dma_fd >= 0) return fmem_read32(dma_fd, raddr);
+    // Assuming DMA mutex has been taken
+    uint32_t dma_offset = dma_set_window(raddr);
+    if (dma_fd >= 0) return fmem_read32(dma_fd, dma_offset);
     else {
         fprintf(stderr, "ERROR: Attempted read from unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -147,8 +186,10 @@ uint32_t FPGA_io::dma_read32(uint64_t raddr) {
 }
 
 void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
-    dma_set_window(waddr);
-    if (dma_fd >= 0) fmem_write8(dma_fd, waddr, wdata);
+    // Assuming DMA mutex has been taken
+    uint32_t dma_offset = dma_set_window(waddr);
+    printf("dma_write8 addr 0x%016lx data 0x%u\r\n", waddr, wdata);
+    if (dma_fd >= 0) fmem_write8(dma_fd, dma_offset, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -156,8 +197,10 @@ void FPGA_io::dma_write8(uint64_t waddr, uint8_t wdata) {
 }
 
 void FPGA_io::dma_write32(uint64_t waddr, uint32_t wdata) {
-    dma_set_window(waddr);
-    if (dma_fd >= 0) fmem_write32(dma_fd, waddr, wdata);
+    // Assuming DMA mutex has been taken
+    printf("dma_write32 addr 0x%016lx data 0x%u\r\n", waddr, wdata);
+    uint32_t dma_offset = dma_set_window(waddr);
+    if (dma_fd >= 0) fmem_write32(dma_fd, dma_offset, wdata);
     else {
         fprintf(stderr, "ERROR: Attempted write to unusable fmem dma device file: %s\r\n", strerror(errno));
         abort();
@@ -281,12 +324,12 @@ void FPGA_io::console_putchar(uint64_t wdata) {
 }
 
 FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
-    : io(0), rom(rom), ctrla_seen(0), irq_state(0), sifive_test_addr(0x50000000),
-      htif_enabled(0), uart_enabled(0), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface)
+    : io(0), rom(rom), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface), irq_state(0),
+      ctrla_seen(0), sifive_test_addr(0x50000000), htif_enabled(0), uart_enabled(0)
 {
     sem_init(&sem_misc_response, 0, 0);
-    io = new FPGA_io(id, this);
-    virtio_devices.set_virtio_dma_fd(io->get_dma_fd());
+    io = new FPGA_io(id);
+    virtio_devices.set_virtio_dma_funcs();
     set_htif_base_addr(0x10001000);
 }
 
@@ -332,33 +375,38 @@ void FPGA::close_dma()
 }
 */
 
-void FPGA::dma_read(uint32_t addr, uint8_t *data, size_t size) {
-    printf("DMA read? addr %08x size %ld",
-                    addr, size);
-    int i=0;
-    if (addr&3 == 0) {
+void FPGA::dma_read(uint64_t addr, uint8_t *data, size_t size) {
+    std::lock_guard<std::mutex> lock(dma_mutex);
+    printf("dma_read addr: %016lx size: %lu\r\n", addr, size);
+    size_t i = 0;
+    if ((addr & 3) == 0) {
         for (; i<size; i+=4) {
             ((uint32_t *)(data+i))[0] = io->dma_read32(addr+i);
         }
-        i -= 4; // undo add that pushed us over so the byte loop
-                // can clean up
+        if (i > size) {
+            i -= 4; // undo add that pushed us over so the byte loop
+                    // can clean up
+        }
     }
-    for (int i=0; i<size; i++) data[i] = io->dma_read8(addr+i);
-    printf(" data[0]: %c\r\n", data[0]);
+    for (; i<size; i++) data[i] = io->dma_read8(addr+i);
+    printf("dma_read done, data[0]: 0x%x\r\n", data[0]);
 }
 
-void FPGA::dma_write(uint32_t addr, uint8_t *data, size_t size) {
-    printf("DMA write? addr %08x size %ld data[0]: %c\r\n",
-                    addr, size, data[0]);
-    int i=0;
-    if (addr&3 == 0) {
-        for (; i<size; i+=4) {
-            io->dma_write32(addr+i, ((uint32_t *)(data+i))[0]);
+void FPGA::dma_write(uint64_t addr, const uint8_t *data, size_t size) {
+    std::lock_guard<std::mutex> lock(dma_mutex);
+    printf("dma_write addr: %016lx size: %lu data[0]: 0x%x\r\n", addr, size, data[0]);
+    size_t i = 0;
+    if ((addr & 3) == 0) {
+        for (; i < size; i += 4) {
+            io->dma_write32(addr+i, ((const uint32_t *)(data+i))[0]);
         }
-        i -= 4; // undo add that pushed us over so the byte loop
-                // can clean up
+        if (i > size) {
+            i -= 4; // undo add that pushed us over so the byte loop
+                    // can clean up
+        }
     }
-    for (int i=0; i<size; i++) io->dma_write8(addr+i, data[i]);
+    for (; i < size; i++) io->dma_write8(addr+i, data[i]);
+    printf("dma_write done\r\n");
 }
 
 /* XXX Implement IRQs somehow.  Just stubbed out for now. */
@@ -439,7 +487,7 @@ void FPGA::enqueue_stdin(char *buf, size_t num_chars)
         }
     } else {
         std::lock_guard<std::mutex> lock(stdin_mutex);
-        for (int i = 0; i < num_chars; i++) {
+        for (size_t i = 0; i < num_chars; i++) {
             stdin_queue.push(buf[i]);
         }
     }
@@ -472,7 +520,7 @@ void FPGA::process_stdin()
         FD_SET(stop_fd, &rfds);
         fd_max = std::max(stdin_fd, stop_fd);
 
-        int ret = select(fd_max + 1, &rfds, &wfds, &efds, NULL);
+        select(fd_max + 1, &rfds, &wfds, &efds, NULL);
         if (FD_ISSET(stop_fd, &rfds)) {
             break;
         }
@@ -493,9 +541,9 @@ void FPGA::process_stdin()
     }
 }
 
-void *FPGA::process_stdin_thread(void *opaque)
+void *FPGA::process_stdin_thread(void *null_arg)
 {
-    ((FPGA *)opaque)->process_stdin();
+    fpga->process_stdin();
     return NULL;
 }
 
@@ -527,7 +575,7 @@ void FPGA::start_io()
 
     pipe(stop_stdin_pipe);
     fcntl(stop_stdin_pipe[1], F_SETFL, O_NONBLOCK);
-    pthread_create(&stdin_thread, NULL, &process_stdin_thread, this);
+    pthread_create(&stdin_thread, NULL, &process_stdin_thread, NULL);
     pthread_setname_np(stdin_thread, "Console input");
 
     if (virtio_devices.has_virtio_console_device()) {

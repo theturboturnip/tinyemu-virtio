@@ -16,10 +16,9 @@ extern "C" {
 #include "fpga.h"
 #include "virtiodevices.h"
 #include "util.h"
+#include <cassert>
 
 static int debug = 0;
-
-extern FPGA *fpga;
 
 
 void fpga_set_irq(void *opaque, int irq_num, int level)
@@ -98,6 +97,8 @@ VirtioDevices::~VirtioDevices() {
 
 void VirtioDevices::add_virtio_block_device(std::string filename)
 {
+    // See VirtioDevices::start() for why this doesn't work. TODO - FIX
+    assert(virtio_block == NULL && "Can't create multiple virtio_block devices");
     // set up a block device
     virtio_bus->addr += 0x1000;
     virtio_bus->irq = &irq[irq_num++];
@@ -124,9 +125,9 @@ void VirtioDevices::set_virtio_stdin_fd(int fd)
     console->opaque = (void *)(intptr_t)fd;
 }
 
-void VirtioDevices::set_virtio_dma_fd(int fd)
+void VirtioDevices::set_virtio_dma_funcs()
 {
-    virtio_dma_init(fd);
+    virtio_dma_init(fpga_singleton_dma_read, fpga_singleton_dma_write);
 }
 
 bool VirtioDevices::has_virtio_console_device()
@@ -212,6 +213,7 @@ void *VirtioDevices::process_io_thread(void *opaque)
 void VirtioDevices::start()
 {
     printf("VirtioDevices::start\r\n");
+    // TODO this only supports one virtio_block device, but the API makes it appear that multiple are supported
     VIRTIODevice *ps[4];
     int n = 0;
 #define ADD_DEVICE(s) if (s) ps[n++] = s
