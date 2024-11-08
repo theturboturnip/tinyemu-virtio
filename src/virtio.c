@@ -155,14 +155,14 @@ typedef CCap2024_11 VIRTIODesc;
 
 static inline __attribute__((always_inline, pure)) uint64_t vdesc_addr(VIRTIODesc* desc) {
     uint64_t base = 0;
-    if (ccap_read_range(desc, &base, NULL, NULL) != CCapResult_Success) {
+    if (ccap2024_11_read_range(desc, &base, NULL, NULL) != CCapResult_Success) {
         fprintf(stderr, "Failed to get vdesc_addr\n");
     }
     return base;
 }
 static inline __attribute__((always_inline, pure)) uint32_t vdesc_len(VIRTIODesc* desc) {
     uint64_t len = 0;
-    if (ccap_read_range(desc, NULL, &len, NULL) != CCapResult_Success) {
+    if (ccap2024_11_read_range(desc, NULL, &len, NULL) != CCapResult_Success) {
         fprintf(stderr, "Failed to get vdesc_len\n");
     } else if (len > 0xFFFFFFFF) {
         fprintf(stderr, "vdesc_len 0x%016lx greater than 32-bit\n", len);
@@ -173,7 +173,7 @@ static inline __attribute__((always_inline, pure)) uint16_t vdesc_flags(VIRTIODe
     uint16_t flags = 0;
 
     CCapPerms perms = CCapPerms_ReadWrite;
-    if (ccap_read_perms(desc, &perms) != CCapResult_Success) {
+    if (ccap2024_11_read_perms(desc, &perms) != CCapResult_Success) {
         fprintf(stderr, "Failed to get perms\n");
     }
     if (perms == CCapPerms_ReadWrite || perms == CCapPerms_Write) {
@@ -187,7 +187,7 @@ static inline __attribute__((always_inline, pure)) uint16_t vdesc_flags(VIRTIODe
     //     [22:21]         [20:8]         [7:0]
 
     uint32_t secret_key_id = 0;
-    if (ccap_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
+    if (ccap2024_11_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
         fprintf(stderr, "Failed to get secret_key_id\n");
     }
     if ((secret_key_id >> 22) & 1) {
@@ -207,7 +207,7 @@ static inline __attribute__((always_inline, pure)) uint16_t vdesc_next(VIRTIODes
     //     [22:21]         [20:8]         [7:0]
 
     uint32_t secret_key_id = 0;
-    if (ccap_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
+    if (ccap2024_11_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
         fprintf(stderr, "Failed to get secret_key_id\n");
     }
     return (secret_key_id >> 8) & 0x1FFF;
