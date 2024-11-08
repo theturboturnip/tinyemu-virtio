@@ -93,8 +93,8 @@ public:
     //void unmap_pcis_dma();
     void open_dma();
     void close_dma();
-    void dma_read(CCap2024_02* cap, uint64_t addr, uint8_t * data, size_t num_bytes);
-    void dma_write(CCap2024_02* cap, uint64_t addr, const uint8_t *data, size_t num_bytes);
+    void dma_read(CCap2024_11* cap, uint64_t addr, uint8_t * data, size_t num_bytes);
+    void dma_write(CCap2024_11* cap, uint64_t addr, const uint8_t *data, size_t num_bytes);
 
     void irq_set_levels(uint32_t w1s);
     void irq_clear_levels(uint32_t w1c);
@@ -133,7 +133,7 @@ extern FPGA *fpga;
 void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface);
 // Call dma_read on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
 // Assumes the FPGA singleton has been initialized, and should not be called until fpga_singleton_init() has been called.
-extern "C" void fpga_singleton_dma_read(CCap2024_02* iocap, uint64_t addr, uint8_t * data, size_t num_bytes);
+extern "C" void fpga_singleton_dma_read(CCap2024_11* iocap, uint64_t addr, uint8_t * data, size_t num_bytes);
 // Call dma_write on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
 // Assumes the FPGA singleton has been initialized, and should not be called until fpga_singleton_init() has been called.
-extern "C" void fpga_singleton_dma_write(CCap2024_02* iocap, uint64_t addr, const uint8_t * data, size_t num_bytes);
+extern "C" void fpga_singleton_dma_write(CCap2024_11* iocap, uint64_t addr, const uint8_t * data, size_t num_bytes);

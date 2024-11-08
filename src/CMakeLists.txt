@@ -58,7 +58,6 @@ set(TINYEMU_SOURCES
   slirp/tftp.h
   slirp/udp.c
   slirp/udp.h
-  iocap/librust_caps_c.h
   iocap/librust_caps_c_panic.cpp
   # Don't override our main!
   #build_filelist.c
@@ -89,8 +88,10 @@ set(TINYEMU_SOURCES
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
 set(IOCAP_LIB ${CMAKE_SOURCE_DIR}/src/iocap/x86_64-unknown-none/librust_caps_c.a)
+include_directories(iocap/x86_64-unknown-none)
 elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
 set(IOCAP_LIB ${CMAKE_SOURCE_DIR}/src/iocap/aarch64-unknown-none/librust_caps_c.a)
+include_directories(iocap/aarch64-unknown-none)
 else()
 message(FATAL_ERROR "cannot compile with iocaplib on this platform")
 endif()

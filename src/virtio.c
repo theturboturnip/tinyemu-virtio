@@ -52,7 +52,6 @@ static inline ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
 #include "virtio.h"
 #include "fmem.h"
 
-#include "iocap/librust_caps_c.h"
 
 #define DEBUG_VIRTIO
 
@@ -135,7 +134,7 @@ typedef struct {
     virtio_phys_addr_t desc_addr;
     virtio_phys_addr_t avail_addr;
     virtio_phys_addr_t used_addr;
-    CCap2024_02 queue_iocap;
+    CCap2024_11 queue_iocap;
     BOOL manual_recv; /* if TRUE, the device_recv() callback is not called */
 } QueueState;
 
@@ -148,11 +147,11 @@ typedef struct {
 #ifdef IOCAP_VDESC
 
 /**
- * Retrofit virtio descriptor behaviour onto CCap2024_02.
+ * Retrofit virtio descriptor behaviour onto CCap2024_11.
  * 
  */
 
-typedef CCap2024_02 VIRTIODesc;
+typedef CCap2024_11 VIRTIODesc;
 
 static inline __attribute__((always_inline, pure)) uint64_t vdesc_addr(VIRTIODesc* desc) {
     uint64_t base = 0;
@@ -342,10 +341,10 @@ static void virtio_pci_bar_set(void *opaque, int bar_num,
     phys_mem_set_addr(s->mem_range, addr, enabled);
 }
 
-static void (*virtio_dma_read)(CCap2024_02*, virtio_phys_addr_t, uint8_t*, size_t) = NULL;
-static void (*virtio_dma_write)(CCap2024_02*, virtio_phys_addr_t, const uint8_t*, size_t) = NULL;
+static void (*virtio_dma_read)(CCap2024_11*, virtio_phys_addr_t, uint8_t*, size_t) = NULL;
+static void (*virtio_dma_write)(CCap2024_11*, virtio_phys_addr_t, const uint8_t*, size_t) = NULL;
 
-void virtio_dma_init(void (*dma_read)(CCap2024_02*, virtio_phys_addr_t, uint8_t*, size_t), void (*dma_write)(CCap2024_02*, virtio_phys_addr_t, const uint8_t*, size_t))
+void virtio_dma_init(void (*dma_read)(CCap2024_11*, virtio_phys_addr_t, uint8_t*, size_t), void (*dma_write)(CCap2024_11*, virtio_phys_addr_t, const uint8_t*, size_t))
 {
     virtio_dma_read = dma_read;
     virtio_dma_write = dma_write;
@@ -434,44 +433,44 @@ static void virtio_init(VIRTIODevice *s, VIRTIOBusDef *bus,
     virtio_reset(s);
 }
 
-static int virtio_memcpy_from_ram(VIRTIODevice *s, CCap2024_02* iocap, uint8_t *buf, virtio_phys_addr_t addr, int count);
-static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr, const uint8_t *buf, int count);
+static int virtio_memcpy_from_ram(VIRTIODevice *s, CCap2024_11* iocap, uint8_t *buf, virtio_phys_addr_t addr, int count);
+static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_11* iocap, virtio_phys_addr_t addr, const uint8_t *buf, int count);
 
 
-static uint16_t virtio_read16(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr)
+static uint16_t virtio_read16(VIRTIODevice *s, CCap2024_11* iocap, virtio_phys_addr_t addr)
 {
     uint16_t data = 0;
     virtio_memcpy_from_ram(s, iocap, (uint8_t*)&data, addr, 2);
     return data;
 }
 
-static void virtio_write16(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr,
+static void virtio_write16(VIRTIODevice *s, CCap2024_11* iocap, virtio_phys_addr_t addr,
                            uint16_t val)
 {
     virtio_memcpy_to_ram(s, iocap, addr, (const uint8_t*)&val, 2);
 }
 
-static void virtio_write32(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr,
+static void virtio_write32(VIRTIODevice *s, CCap2024_11* iocap, virtio_phys_addr_t addr,
                            uint32_t val)
 {
     virtio_memcpy_to_ram(s, iocap, addr, (const uint8_t*)&val, 4);
 }
 
-static int virtio_memcpy_from_ram(VIRTIODevice *s, CCap2024_02* iocap, uint8_t *buf,
+static int virtio_memcpy_from_ram(VIRTIODevice *s, CCap2024_11* iocap, uint8_t *buf,
                                   virtio_phys_addr_t addr, int count)
 {
     virtio_dma_read(iocap, addr, buf, count);
     return 0;
 }
 
-static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_02* iocap, virtio_phys_addr_t addr,
+static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_11* iocap, virtio_phys_addr_t addr,
                                 const uint8_t * buf, int count)
 {
     virtio_dma_write(iocap, addr, buf, count);
     return 0;
 }
 
-static int get_desc(VIRTIODevice *s, CCap2024_02* iocap, VIRTIODesc *desc,
+static int get_desc(VIRTIODevice *s, CCap2024_11* iocap, VIRTIODesc *desc,
                     int queue_idx, int desc_idx)
 {
     QueueState *qs = &s->queue[queue_idx];
@@ -491,7 +490,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 {
     VIRTIODesc desc;
     int l, f_write_flag;
-    CCap2024_02* queue_iocap = &s->queue[queue_idx].queue_iocap;
+    CCap2024_11* queue_iocap = &s->queue[queue_idx].queue_iocap;
     
     printf("memcpy_to_from_queue! buf: %p, offset: %x, count: %x, to_queue: %d \r\n", buf, offset, count, to_queue);
 
@@ -536,7 +535,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 	    printf("memcpy_to_from_queue: buf: %p, desc.addr + offset: %lx, count: %d, desc.len: %d, offset: %d \r\n",
 			buf, (vdesc_addr(&desc) + offset), count, vdesc_len(&desc), offset);
         printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", vdesc_addr(&desc), vdesc_len(&desc), vdesc_flags(&desc) & VRING_DESC_F_WRITE, vdesc_flags(&desc) & VRING_DESC_F_NEXT, vdesc_next(&desc));
-        CCap2024_02* dma_iocap = queue_iocap;
+        CCap2024_11* dma_iocap = queue_iocap;
         #ifdef IOCAP_VDESC
         dma_iocap = &desc;
         #endif
@@ -602,7 +601,7 @@ static void virtio_consume_desc(VIRTIODevice *s,
     set_irq(s->irq, 1);
 }
 
-static int get_desc_rw_size(VIRTIODevice *s, CCap2024_02* iocap,
+static int get_desc_rw_size(VIRTIODevice *s, CCap2024_11* iocap,
                              int *pread_size, int *pwrite_size,
                              int queue_idx, int desc_idx)
 {

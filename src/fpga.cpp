@@ -9,7 +9,8 @@
 #include "util.h"
 #include "fmem.h"
 
-#include "iocap/librust_caps_c.h"
+// This will be from the aarch64 or x86_64 subfolders of iocap/ depending on the current target
+#include "librust_caps_c.h"
 
 #define TOHOST_OFFSET 0
 #define FROMHOST_OFFSET 8
@@ -30,12 +31,12 @@ void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface) {
 }
 // Call dma_read on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
 // Can be passed to C interfaces as a plain function pointer.
-void fpga_singleton_dma_read(CCap2024_02* iocap, uint64_t addr, uint8_t * data, size_t num_bytes) {
+void fpga_singleton_dma_read(CCap2024_11* iocap, uint64_t addr, uint8_t * data, size_t num_bytes) {
     fpga->dma_read(iocap, addr, data, num_bytes);
 }
 // Call dma_write on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
 // Can be passed to C interfaces as a plain function pointer.
-void fpga_singleton_dma_write(CCap2024_02* iocap, uint64_t addr, const uint8_t * data, size_t num_bytes) {
+void fpga_singleton_dma_write(CCap2024_11* iocap, uint64_t addr, const uint8_t * data, size_t num_bytes) {
     fpga->dma_write(iocap, addr, data, num_bytes);
 }
 
@@ -116,7 +117,7 @@ public:
     /*
     dma_set_window, dma_read8, dma_read32, dma_write8, dma_write32 all assume the dma_mutex have been taken before calling them.
     */
-    void dma_set_iocap(CCap2024_02* iocap);
+    void dma_set_iocap(CCap2024_11* iocap);
     uint32_t dma_set_window(uint64_t addr, bool force=false); // Returns the offset to use when fmem-ing the DMA window
     uint8_t dma_read8(uint64_t raddr);
     uint32_t dma_read32(uint64_t raddr);
@@ -137,9 +138,9 @@ void FPGA_io::close_dma()
 
 // Keep a static to remember what the last IOCap was.
 // Assume an IOcap will never be all-zeros.
-static CCap2024_02 last_iocap = {0};
+static CCap2024_11 last_iocap = {0};
 
-void FPGA_io::dma_set_iocap(CCap2024_02* iocap) {
+void FPGA_io::dma_set_iocap(CCap2024_11* iocap) {
     if (memcmp(iocap, &last_iocap, 32) != 0) {
         if (selector_fd >= 0) {
             printf("writing iocap 0x0 == 0x%x\n",
@@ -450,7 +451,7 @@ void FPGA::close_dma()
 }
 */
 
-void FPGA::dma_read(CCap2024_02* iocap, uint64_t addr, uint8_t *data, size_t size) {
+void FPGA::dma_read(CCap2024_11* iocap, uint64_t addr, uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
     printf("dma_read addr: %016lx size: %lu\r\n", addr, size);
     io->dma_set_iocap(iocap);
@@ -472,7 +473,7 @@ void FPGA::dma_read(CCap2024_02* iocap, uint64_t addr, uint8_t *data, size_t siz
     printf("dma_read done, data[0]: 0x%x\r\n", data[0]);
 }
 
-void FPGA::dma_write(CCap2024_02* iocap, uint64_t addr, const uint8_t *data, size_t size) {
+void FPGA::dma_write(CCap2024_11* iocap, uint64_t addr, const uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
     printf("dma_write addr: %016lx size: %lu data[0]: 0x%x\r\n", addr, size, data[0]);
     io->dma_set_iocap(iocap);
