@@ -453,7 +453,11 @@ void FPGA::close_dma()
 
 void FPGA::dma_read(CCap2024_11* iocap, uint64_t addr, uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
-    printf("dma_read addr: %016lx size: %lu\r\n", addr, size);
+    uint64_t iocap_addr = 0, iocap_len = 0;
+    CCapPerms iocap_perms = CCapPerms_ReadWrite;
+    ccap2024_11_read_perms(iocap, &iocap_perms); // assume always OK
+    CCapResult res = ccap2024_11_read_range(iocap, &iocap_addr, &iocap_len, nullptr);
+    printf("dma_read addr: %016lx size: %lu iocap_perms: %s, iocap_addr: %016lx iocap_size: %016lx iocap_res: %s\r\n", addr, size, ccap_perms_str(iocap_perms), iocap_addr, iocap_len, ccap_result_str(res));
     io->dma_set_iocap(iocap);
     // Force set the DMA window in case we're running on hardware without IOcaps
     // In that case the iocap writes may be to a wraparound section and end up overwriting the window.
@@ -476,7 +480,11 @@ void FPGA::dma_read(CCap2024_11* iocap, uint64_t addr, uint8_t *data, size_t siz
 
 void FPGA::dma_write(CCap2024_11* iocap, uint64_t addr, const uint8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(dma_mutex);
-    printf("dma_write addr: %016lx size: %lu data[0]: 0x%x\r\n", addr, size, data[0]);
+    uint64_t iocap_addr = 0, iocap_len = 0;
+    CCapPerms iocap_perms = CCapPerms_ReadWrite;
+    ccap2024_11_read_perms(iocap, &iocap_perms); // assume always OK
+    CCapResult res = ccap2024_11_read_range(iocap, &iocap_addr, &iocap_len, nullptr);
+    printf("dma_write addr: %016lx size: %lu data[0]: 0x%x iocap_perms: %s, iocap_addr: %016lx iocap_size: %016lx iocap_res: %s\r\n", addr, size, data[0], ccap_perms_str(iocap_perms), iocap_addr, iocap_len, ccap_result_str(res));
     io->dma_set_iocap(iocap);
     // Force set the DMA window in case we're running on hardware without IOcaps
     // In that case the iocap writes may be to a wraparound section and end up overwriting the window.
