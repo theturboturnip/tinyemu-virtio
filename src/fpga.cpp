@@ -461,13 +461,14 @@ void FPGA::dma_read(CCap2024_11* iocap, uint64_t addr, uint8_t *data, size_t siz
     io->dma_set_window(addr, true);
     size_t i = 0;
     if ((addr & 3) == 0) {
-        for (; i<size; i+=4) {
+        // precondition: initial i = 0, therefore i <= size
+        // a 32-bit access is equivalent to accessing (i, i+1, i+2, i+3) which must all be in bounds i.e. i+3 < size or i+4 <= size
+        while (i + 4 <= size) {
             ((uint32_t *)(data+i))[0] = io->dma_read32(addr+i);
+            i += 4;
         }
-        if (i > size) {
-            i -= 4; // undo add that pushed us over so the byte loop
-                    // can clean up
-        }
+        // postcondition: i + 4 > size
+        // i <= size and i + 4 > size => we may need a cleanup loop if i != size
     }
     for (; i<size; i++) data[i] = io->dma_read8(addr+i);
     printf("dma_read done, data[0]: 0x%x\r\n", data[0]);
@@ -483,13 +484,14 @@ void FPGA::dma_write(CCap2024_11* iocap, uint64_t addr, const uint8_t *data, siz
     io->dma_set_window(addr, true);
     size_t i = 0;
     if ((addr & 3) == 0) {
-        for (; i < size; i += 4) {
+        // precondition: initial i = 0, therefore i <= size
+        // a 32-bit access is equivalent to accessing (i, i+1, i+2, i+3) which must all be in bounds i.e. i+3 < size or i+4 <= size
+        while (i + 4 <= size) {
             io->dma_write32(addr+i, ((const uint32_t *)(data+i))[0]);
+            i += 4;
         }
-        if (i > size) {
-            i -= 4; // undo add that pushed us over so the byte loop
-                    // can clean up
-        }
+        // postcondition: i + 4 > size
+        // i <= size and i + 4 > size => we may need a cleanup loop if i != size
     }
     for (; i < size; i++) io->dma_write8(addr+i, data[i]);
     printf("dma_write done\r\n");
