@@ -605,6 +605,10 @@ static int get_desc_rw_size(VIRTIODevice *s, CCap2024_11* iocap,
                              int *pread_size, int *pwrite_size,
                              int queue_idx, int desc_idx)
 {
+    // This function reads a chain of virtio descriptors from the queue, summing up the total read and write lengths.
+    // It assumes the chain is entirely read, entirely write, or a string of read and then a string of write descriptors.
+    // If this assumption is violated the function returns -1.
+    // Otherwise the pread_size and pwrite_size pointers are filled in with the sum of read and sum of write sizes before returning 0.
     VIRTIODesc desc;
     int read_size, write_size;
 
@@ -657,6 +661,9 @@ static void queue_notify(VIRTIODevice *s, int queue_idx)
     if (qs->manual_recv)
         return;
 
+    int handled_reqs = 0;
+
+    printf("queue_notify avail_idx: %d, last_avail_idx: %d\r\n", avail_idx, qs->last_avail_idx);
     atomic_thread_fence(memory_order_acquire);
     while (qs->last_avail_idx != avail_idx) {
         desc_idx = virtio_read16(s, &qs->queue_iocap, qs->avail_addr + 4 +
@@ -671,8 +678,18 @@ static void queue_notify(VIRTIODevice *s, int queue_idx)
             if (s->device_recv(s, queue_idx, desc_idx,
                                read_size, write_size) < 0)
                 break;
+        
+            handled_reqs++;
+        } else {
+            // Something has gone wrong, log that
+            printf("queue_notify buggy descriptor chain: idx=%d\r\n",
+                    queue_idx);
         }
         qs->last_avail_idx++;
+    }
+    // Log if something has gone wrong or debug info was requested
+    if (handled_reqs == 0 || s->debug & VIRTIO_DEBUG_IO) {
+        printf("queue_notify handled %d requests before finishing\r\n", handled_reqs);
     }
 }
 
@@ -1220,17 +1237,16 @@ typedef struct {
 
 static void virtio_block_req_end(VIRTIODevice *s, int ret)
 {
-    printf("virtio_block_req_end\r\n");
     VIRTIOBlockDevice *s1 = (VIRTIOBlockDevice *)s;
     int write_size;
     int queue_idx = s1->req.queue_idx;
     int desc_idx = s1->req.desc_idx;
     uint8_t *buf, buf1[1];
 
-    printf("VIRTIO BLOCK REQ END: req.type: %x, req.write_size: %x, req.buf: %lx \r\n", s1->req.type, s1->req.write_size, (uint64_t)s1->req.buf);
+    printf("BLK virtio_block_req_end: req.type: %x, req.write_size: %x, req.buf: %lx, ret: %d \r\n", s1->req.type, s1->req.write_size, (uint64_t)s1->req.buf, ret);
     switch(s1->req.type) {
     case VIRTIO_BLK_T_IN:
-        printf("virtio_block_req_end(BLK_T_IN)\r\n");
+        printf("BLK virtio_block_req_end(BLK_T_IN) = %s\r\n", (ret < 0) ? "IOERR" : "OK");
         write_size = s1->req.write_size;
         buf = s1->req.buf;
         if (ret < 0) {
@@ -1239,12 +1255,12 @@ static void virtio_block_req_end(VIRTIODevice *s, int ret)
             buf[write_size - 1] = VIRTIO_BLK_S_OK;
         }
         memcpy_to_queue(s, queue_idx, desc_idx, 0, buf, write_size);
-        printf("memcpy finished\n");
+        printf("BLK memcpy finished\n");
         free(buf);
         virtio_consume_desc(s, queue_idx, desc_idx, write_size);
         break;
     case VIRTIO_BLK_T_OUT:
-        printf("virtio_block_req_end(BLK_T_OUT)\r\n");
+        printf("BLK virtio_block_req_end(BLK_T_OUT) = %s\r\n", (ret < 0) ? "IOERR" : "OK");
         if (ret < 0)
             buf1[0] = VIRTIO_BLK_S_IOERR;
         else
@@ -1261,7 +1277,7 @@ static void virtio_block_req_cb(void *opaque, int ret)
 {
     VIRTIODevice *s = opaque;
     VIRTIOBlockDevice *s1 = (VIRTIOBlockDevice *)s;
-    printf("virtio_block_req_cb\r\n");
+    printf("BLK virtio_block_req_cb\r\n");
     virtio_block_req_end(s, ret);
 
     s1->req_in_progress = FALSE;
