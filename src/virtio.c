@@ -134,6 +134,7 @@ typedef struct {
     virtio_phys_addr_t desc_addr;
     virtio_phys_addr_t avail_addr;
     virtio_phys_addr_t used_addr;
+    // TODO note that this is always used but will only be populated with valid data if the feature is negotiated?
     CCap2024_11 queue_iocap;
     BOOL manual_recv; /* if TRUE, the device_recv() callback is not called */
 } QueueState;
@@ -144,76 +145,7 @@ typedef struct {
 
 #define IOCAP_VDESC 1
 
-#ifdef IOCAP_VDESC
-
-/**
- * Retrofit virtio descriptor behaviour onto CCap2024_11.
- * 
- */
-
-typedef CCap2024_11 VIRTIODesc;
-
-static inline __attribute__((always_inline, pure)) uint64_t vdesc_addr(VIRTIODesc* desc) {
-    uint64_t base = 0;
-    if (ccap2024_11_read_range(desc, &base, NULL, NULL) != CCapResult_Success) {
-        fprintf(stderr, "Failed to get vdesc_addr\n");
-    }
-    return base;
-}
-static inline __attribute__((always_inline, pure)) uint32_t vdesc_len(VIRTIODesc* desc) {
-    uint64_t len = 0;
-    if (ccap2024_11_read_range(desc, NULL, &len, NULL) != CCapResult_Success) {
-        fprintf(stderr, "Failed to get vdesc_len\n");
-    } else if (len > 0xFFFFFFFF) {
-        fprintf(stderr, "vdesc_len 0x%016lx greater than 32-bit\n", len);
-    }
-    return len;
-}
-static inline __attribute__((always_inline, pure)) uint16_t vdesc_flags(VIRTIODesc* desc) {
-    uint16_t flags = 0;
-
-    CCapPerms perms = CCapPerms_ReadWrite;
-    if (ccap2024_11_read_perms(desc, &perms) != CCapResult_Success) {
-        fprintf(stderr, "Failed to get perms\n");
-    }
-    if (perms == CCapPerms_ReadWrite || perms == CCapPerms_Write) {
-        flags |= VRING_DESC_F_WRITE;
-    }
-
-    // Pack the other two bits into secret_key_id. 
-    // This is 23-bits long, but the current setup only uses 255 keys i.e. 8 bits.
-    // Thus, we can take up 15 bits. 2 for the next|indirect flags, 13 for the 'next' field.
-    // |- flags[1:0] -|- next[12:0] -|- key[7:0] -|
-    //     [22:21]         [20:8]         [7:0]
-
-    uint32_t secret_key_id = 0;
-    if (ccap2024_11_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
-        fprintf(stderr, "Failed to get secret_key_id\n");
-    }
-    if ((secret_key_id >> 22) & 1) {
-        flags |= VRING_DESC_F_INDIRECT;
-    }
-    if ((secret_key_id >> 21) & 1) {
-        flags |= VRING_DESC_F_NEXT;
-    }
-
-    return flags;
-}
-static inline __attribute__((always_inline, pure)) uint16_t vdesc_next(VIRTIODesc* desc) {
-    // 'next' is packed into secret_key_id. 
-    // This is 23-bits long, but the current setup only uses 255 keys i.e. 8 bits.
-    // Thus, we can take up 15 bits. 2 for the next|indirect flags, 13 for the 'next' field.
-    // |- flags[1:0] -|- next[12:0] -|- key[7:0] -|
-    //     [22:21]         [20:8]         [7:0]
-
-    uint32_t secret_key_id = 0;
-    if (ccap2024_11_read_secret_id(desc, &secret_key_id) != CCapResult_Success) {
-        fprintf(stderr, "Failed to get secret_key_id\n");
-    }
-    return (secret_key_id >> 8) & 0x1FFF;
-}
-
-#else
+#include "librust_caps_c.h"
 
 typedef struct {
     uint64_t addr;
@@ -234,7 +166,6 @@ static inline __attribute__((always_inline, pure)) uint16_t vdesc_flags(VIRTIODe
 static inline __attribute__((always_inline, pure)) uint16_t vdesc_next(VIRTIODesc* desc) {
     return desc->next;
 }
-#endif
 
 /* return < 0 to stop the notification (it must be manually restarted
    later), 0 if OK */
@@ -470,13 +401,37 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_11* iocap, virtio_phys
     return 0;
 }
 
-static int get_desc(VIRTIODevice *s, CCap2024_11* iocap, VIRTIODesc *desc,
+// Memcpys a queue element from host RAM and extracts the meaning as a VIRTIODesc*.
+// Depending on if IOCAP_VDESC is defined, the actual contents of the queue may be CCap2024_11 structures
+// or they may be plain VIRTIODesc already.
+// In the former case, the memory at desc_iocap will be populated with the contents of the CCap2024_11
+// and desc will be populated with the ccap2024_11_read_virtio() result from that iocap.
+// In the latter case, the memory at desc_iocap will not be touched.
+static int get_desc(VIRTIODevice *s, CCap2024_11* dma_iocap,
+                    VIRTIODesc *desc, CCap2024_11* desc_iocap,
                     int queue_idx, int desc_idx)
 {
     QueueState *qs = &s->queue[queue_idx];
+    // TODO feature negotiate IOCaps and make this conditional
+    #if IOCAP_VDESC
+    // Always returns 0
+    virtio_memcpy_from_ram(s, dma_iocap, (void *)desc_iocap, qs->desc_addr +
+                                  desc_idx * sizeof(CCap2024_11),
+                                  sizeof(CCap2024_11));
+    CCapResult res = ccap2024_11_read_virtio(
+        desc_iocap,
+        // This is a legal cast because the structures are the same VIRTIODesc
+        (struct CCapNativeVirtqDesc *)desc
+    );
+    if (res != CCapResult_Success) {
+        fprintf(stderr, "Failed to extract virtio from desc_iocap: %s\n", ccap_result_str(res));
+    }
+    return 0;
+    #else
     return virtio_memcpy_from_ram(s, iocap, (void *)desc, qs->desc_addr +
                                   desc_idx * sizeof(VIRTIODesc),
                                   sizeof(VIRTIODesc));
+    #endif
 }
 
 static void log_desc(VIRTIODesc* desc)
@@ -489,6 +444,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
                                 int offset, int count, BOOL to_queue)
 {
     VIRTIODesc desc;
+    CCap2024_11 desc_iocap;
     int l, f_write_flag;
     CCap2024_11* queue_iocap = &s->queue[queue_idx].queue_iocap;
     
@@ -497,7 +453,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
     if (count == 0)
         return 0;
 
-    get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
+    get_desc(s, queue_iocap, &desc, &desc_iocap, queue_idx, desc_idx);
     log_desc(&desc);
 
     if (to_queue) {
@@ -509,7 +465,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
             if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
                 return -1;
             desc_idx = vdesc_next(&desc);
-            get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
+            get_desc(s, queue_iocap, &desc, &desc_iocap, queue_idx, desc_idx);
             log_desc(&desc);
         }
     } else {
@@ -526,7 +482,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
             return -1;
         desc_idx = vdesc_next(&desc);
         offset -= vdesc_len(&desc);
-        get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
+        get_desc(s, queue_iocap, &desc, &desc_iocap, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
@@ -536,8 +492,9 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 			buf, (vdesc_addr(&desc) + offset), count, vdesc_len(&desc), offset);
         printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", vdesc_addr(&desc), vdesc_len(&desc), vdesc_flags(&desc) & VRING_DESC_F_WRITE, vdesc_flags(&desc) & VRING_DESC_F_NEXT, vdesc_next(&desc));
         CCap2024_11* dma_iocap = queue_iocap;
+        // TODO make this conditional on the device having the iocap feature
         #ifdef IOCAP_VDESC
-        dma_iocap = &desc;
+        dma_iocap = &desc_iocap;
         #endif
         if (to_queue)
             virtio_memcpy_to_ram(s, dma_iocap, vdesc_addr(&desc) + offset, buf, l);
@@ -553,7 +510,7 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
             if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
                 return -1;
             desc_idx = vdesc_next(&desc);
-            get_desc(s, queue_iocap, &desc, queue_idx, desc_idx);
+            get_desc(s, queue_iocap, &desc, &desc_iocap, queue_idx, desc_idx);
             if ((vdesc_flags(&desc) & VRING_DESC_F_WRITE) != f_write_flag)
                 return -1;
             offset = 0;
@@ -610,11 +567,14 @@ static int get_desc_rw_size(VIRTIODevice *s, CCap2024_11* iocap,
     // If this assumption is violated the function returns -1.
     // Otherwise the pread_size and pwrite_size pointers are filled in with the sum of read and sum of write sizes before returning 0.
     VIRTIODesc desc;
+    // We do not need to read the iocap at any point but if the device uses IOCaps we need to give get_desc() memory
+    // to store the IOCap while decoding it.
+    CCap2024_11 desc_iocap;
     int read_size, write_size;
 
     read_size = 0;
     write_size = 0;
-    get_desc(s, iocap, &desc, queue_idx, desc_idx);
+    get_desc(s, iocap, &desc, &desc_iocap, queue_idx, desc_idx);
     log_desc(&desc);
 
     for(;;) {
@@ -624,7 +584,7 @@ static int get_desc_rw_size(VIRTIODevice *s, CCap2024_11* iocap,
         if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
             goto done;
         desc_idx = vdesc_next(&desc);
-        get_desc(s, iocap, &desc, queue_idx, desc_idx);
+        get_desc(s, iocap, &desc, &desc_iocap, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
@@ -635,7 +595,7 @@ static int get_desc_rw_size(VIRTIODevice *s, CCap2024_11* iocap,
         if (!(vdesc_flags(&desc) & VRING_DESC_F_NEXT))
             break;
         desc_idx = vdesc_next(&desc);
-        get_desc(s, iocap, &desc, queue_idx, desc_idx);
+        get_desc(s, iocap, &desc, &desc_iocap, queue_idx, desc_idx);
         log_desc(&desc);
     }
 
