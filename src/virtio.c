@@ -55,6 +55,31 @@ static inline ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
 
 #define DEBUG_VIRTIO
 
+/* VIRTIO Features and status bits - copied from FreeRTOS */
+/* Device status bits */
+#define VIRTIO_STAT_ACKNOWLEDGE		1
+#define VIRTIO_STAT_DRIVER		2
+#define VIRTIO_STAT_DRIVER_OK		4
+#define VIRTIO_STAT_FEATURES_OK		8
+#define VIRTIO_STAT_NEEDS_RESET		64
+#define VIRTIO_STAT_FAILED		128
+
+#define BIT(x) (1ULL << (x))
+
+/* VIRTIO 1.0 Device independent feature bits */
+#define VIRTIO_F_VERSION_1		((uint64_t) BIT(32))
+/* Custom VIRTIO IOCap feature bit.
+When negotiated, VIRTIO_MMIO_QUEUE_IOCAP_{TXT,SIG}_WORD{0,1,2,3} in the device MMIO space
+must be populated with an IOCap for each queue (using VIRTIO_MMIO_QUEUE_SEL),
+and the descriptors in each queue must be 256-bit IOCaps.
+*/
+#define VIRTIO_F_IOCAP_QUEUE    ((uint64_t) BIT(41))
+
+// Device-specific features
+#define VIRTIO_CONSOLE_F_SIZE               BIT(0)
+#define VIRTIO_NET_F_MAC                    BIT(5)
+#define VIRTIO_NET_F_STATUS                 BIT(16)
+
 /* MMIO addresses - from the Linux kernel */
 #define VIRTIO_MMIO_MAGIC_VALUE         0x000
 #define VIRTIO_MMIO_VERSION             0x004
@@ -134,7 +159,10 @@ typedef struct {
     virtio_phys_addr_t desc_addr;
     virtio_phys_addr_t avail_addr;
     virtio_phys_addr_t used_addr;
-    // TODO note that this is always used but will only be populated with valid data if the feature is negotiated?
+    // Right now the virtio_dma* functions require some IOCap to be passed in.
+    // If the VIRTIO_F_IOCAP_QUEUE feature is negotiated, this is filled in with the VIRTIO_MMIO_QUEUE_IOCAP_* registers
+    // and used to authenticate DMA accesses to this queue.
+    // It is also used in memcpy_to_from_queue() as a fallback IOCap for virtio_dma* when the feature is not negotiated.
     CCap2024_11 queue_iocap;
     BOOL manual_recv; /* if TRUE, the device_recv() callback is not called */
 } QueueState;
@@ -143,10 +171,11 @@ typedef struct {
 #define VRING_DESC_F_WRITE      2
 #define VRING_DESC_F_INDIRECT   4
 
-#define IOCAP_VDESC 1
-
 #include "librust_caps_c.h"
 
+// This uses native integer types, unlike the virtio spec
+// which dictates these fields are little-endian,
+// thus assuming that the machine tinyemu runs on is little-endian.
 typedef struct {
     uint64_t addr;
     uint32_t len;
@@ -189,13 +218,14 @@ struct VIRTIODevice {
     uint32_t int_status;
     uint32_t status;
     uint32_t device_features_sel;
+    uint32_t driver_features_sel;
     uint32_t queue_sel; /* currently selected queue */
     QueueState queue[MAX_QUEUE];
 
     /* device specific */
     uint32_t device_id;
     uint32_t vendor_id;
-    uint32_t device_features;
+    uint64_t device_features;
     VIRTIODeviceRecvFunc *device_recv;
     void (*config_write)(VIRTIODevice *s); /* called after the config
                                               is written */
@@ -203,6 +233,12 @@ struct VIRTIODevice {
     uint8_t config_space[MAX_CONFIG_SPACE_SIZE];
 
     _Atomic uint32_t pending_queue_notify;
+
+    uint64_t driver_features;
+
+    // Set to zero, once (status & FEATURES_OK) is set this will be a subset of 
+    // the bits set in `device_features`. This must include VIRTIO_F_VERSION_1.
+    uint64_t negotiated_features;
 };
 
 static uint32_t virtio_mmio_read(void *opaque, uint32_t offset1, int size_log2);
@@ -221,6 +257,7 @@ void virtio_reset(VIRTIODevice *s)
     s->status = 0;
     s->queue_sel = 0;
     s->device_features_sel = 0;
+    s->driver_features_sel = 0;
     s->int_status = 0;
     for(i = 0; i < MAX_QUEUE; i++) {
         QueueState *qs = &s->queue[i];
@@ -231,6 +268,8 @@ void virtio_reset(VIRTIODevice *s)
         qs->used_addr = 0;
         qs->last_avail_idx = 0;
     }
+    s->driver_features = 0;
+    s->negotiated_features = 0;
 }
 
 static uint8_t *virtio_pci_get_ram_ptr(VIRTIODevice *s, virtio_phys_addr_t paddr, BOOL is_rw)
@@ -402,7 +441,7 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, CCap2024_11* iocap, virtio_phys
 }
 
 // Memcpys a queue element from host RAM and extracts the meaning as a VIRTIODesc*.
-// Depending on if IOCAP_VDESC is defined, the actual contents of the queue may be CCap2024_11 structures
+// Depending on if VIRTIO_F_IOCAP_QUEUE is negotiated, the actual contents of the queue may be CCap2024_11 structures
 // or they may be plain VIRTIODesc already.
 // In the former case, the memory at desc_iocap will be populated with the contents of the CCap2024_11
 // and desc will be populated with the ccap2024_11_read_virtio() result from that iocap.
@@ -412,26 +451,24 @@ static int get_desc(VIRTIODevice *s, CCap2024_11* dma_iocap,
                     int queue_idx, int desc_idx)
 {
     QueueState *qs = &s->queue[queue_idx];
-    // TODO feature negotiate IOCaps and make this conditional
-    #if IOCAP_VDESC
-    // Always returns 0
-    virtio_memcpy_from_ram(s, dma_iocap, (void *)desc_iocap, qs->desc_addr +
-                                  desc_idx * sizeof(CCap2024_11),
-                                  sizeof(CCap2024_11));
-    CCapResult res = ccap2024_11_read_virtio(
-        desc_iocap,
-        // This is a legal cast because the structures are the same VIRTIODesc
-        (struct CCapNativeVirtqDesc *)desc
-    );
-    if (res != CCapResult_Success) {
-        fprintf(stderr, "Failed to extract virtio from desc_iocap: %s\n", ccap_result_str(res));
+    if (s->negotiated_features & VIRTIO_F_IOCAP_QUEUE) {
+        // Always returns 0
+        virtio_memcpy_from_ram(s, dma_iocap, (void *)desc_iocap, qs->desc_addr +
+                                    desc_idx * sizeof(CCap2024_11),
+                                    sizeof(CCap2024_11));
+        CCapResult res = ccap2024_11_read_virtio(
+            desc_iocap,
+            // This is a legal cast because the structures are the same.
+            (struct CCapNativeVirtqDesc *)desc
+        );
+        if (res != CCapResult_Success) {
+            fprintf(stderr, "Failed to extract virtio from desc_iocap: %s\n", ccap_result_str(res));
+        }
+        return 0;
     }
-    return 0;
-    #else
-    return virtio_memcpy_from_ram(s, iocap, (void *)desc, qs->desc_addr +
+    return virtio_memcpy_from_ram(s, dma_iocap, (void *)desc, qs->desc_addr +
                                   desc_idx * sizeof(VIRTIODesc),
                                   sizeof(VIRTIODesc));
-    #endif
 }
 
 static void log_desc(VIRTIODesc* desc)
@@ -491,11 +528,9 @@ static int memcpy_to_from_queue(VIRTIODevice *s, uint8_t *buf,
 	    printf("memcpy_to_from_queue: buf: %p, desc.addr + offset: %lx, count: %d, desc.len: %d, offset: %d \r\n",
 			buf, (vdesc_addr(&desc) + offset), count, vdesc_len(&desc), offset);
         printf("descriptor: addr: 0x%08lx len: %d is_write: %d has_next: %d next: %d\r\n", vdesc_addr(&desc), vdesc_len(&desc), vdesc_flags(&desc) & VRING_DESC_F_WRITE, vdesc_flags(&desc) & VRING_DESC_F_NEXT, vdesc_next(&desc));
-        CCap2024_11* dma_iocap = queue_iocap;
-        // TODO make this conditional on the device having the iocap feature
-        #ifdef IOCAP_VDESC
-        dma_iocap = &desc_iocap;
-        #endif
+        // If we aren't using an iocap queue, just use the (likely empty) queue iocap to authenticate the DMA.
+        // It's just the closest one we have to hand, there's no real reason why we couldn't use all-zeros or something.
+        CCap2024_11* dma_iocap = (s->negotiated_features & VIRTIO_F_IOCAP_QUEUE) ? &desc_iocap : queue_iocap;
         if (to_queue)
             virtio_memcpy_to_ram(s, dma_iocap, vdesc_addr(&desc) + offset, buf, l);
         else
@@ -743,7 +778,7 @@ static uint32_t virtio_mmio_read(void *opaque, uint32_t offset, int size_log2)
                 val = s->device_features;
                 break;
             case 1:
-                val = 1; /* version 1 */
+                val = s->device_features >> 32;
                 break;
             default:
                 val = 0;
@@ -861,6 +896,21 @@ static void virtio_mmio_write(void *opaque, uint32_t offset,
         case VIRTIO_MMIO_DEVICE_FEATURES_SEL:
             s->device_features_sel = val;
             break;
+        case VIRTIO_MMIO_DRIVER_FEATURES_SEL:
+            s->driver_features_sel = val;
+            break;
+        case VIRTIO_MMIO_DRIVER_FEATURES:
+            switch(s->driver_features_sel) {
+            case 0:
+                s->driver_features |= ((uint64_t) val) << 0;
+                break;
+            case 1:
+                s->driver_features |= ((uint64_t) val) << 32;
+                break;
+            default:
+                break;
+            }
+            break;
         case VIRTIO_MMIO_QUEUE_SEL:
             if (val < MAX_QUEUE)
                 s->queue_sel = val;
@@ -947,6 +997,27 @@ static void virtio_mmio_write(void *opaque, uint32_t offset,
             s->queue[s->queue_sel].queue_iocap.signature[15] = (uint8_t)(val >> 24);
             break;
         case VIRTIO_MMIO_STATUS:
+            // If we're setting the FEATURES_OK status bit,
+            // check the driver-requested features intersect correctly with the device-exposed features.
+            // If so, set 'negotiated_features' and allow the FEATURES_OK status change to go through.
+            // Otherwise, do *not* let FEATURES_OK go through.
+            if (((s->status & VIRTIO_STAT_FEATURES_OK) == 0) && (val & VIRTIO_STAT_FEATURES_OK)) {
+                uint64_t negotiated_features = (s->driver_features & s->device_features);
+                if ((negotiated_features == s->driver_features) && (negotiated_features & VIRTIO_F_VERSION_1)) {
+                    printf("VIRTIO_MMIO_STATUS successfully negotiated features %lx\n", negotiated_features);
+                    s->negotiated_features = negotiated_features;
+                } else {
+                    printf(
+                        "VIRTIO_MMIO_STATUS attempted to set FEATURES_OK but failed negotiation.\n"
+                        "Features available: 0x%016lx\n"
+                        "Features requested: 0x%016lx\n",
+                        s->device_features,
+                        s->driver_features
+                    );
+                    val = val ^ VIRTIO_STAT_FEATURES_OK;
+                }
+            }
+
             s->status = val;
             if (val == 0) {
                 /* reset */
@@ -1332,6 +1403,8 @@ VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs)
     // TODO if VIRTIO_BLK_F_BLK_SIZE feature negotiated, fill in offset 20(?) with blk_size=512
     // This is to find the "optimal block size"
 
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_F_IOCAP_QUEUE;
+
     return (VIRTIODevice *)s;
 }
 
@@ -1436,8 +1509,7 @@ VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es)
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 1, 6 + 2, virtio_net_recv_request);
-    /* VIRTIO_NET_F_MAC, VIRTIO_NET_F_STATUS */
-    s->common.device_features = (1 << 5) /* | (1 << 16) */;
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_F_IOCAP_QUEUE | VIRTIO_NET_F_MAC /* | VIRTIO_NET_F_STATUS */;
     s->common.queue[0].manual_recv = TRUE;
     s->es = es;
     memcpy(s->common.config_space, es->mac_addr, 6);
@@ -1548,7 +1620,7 @@ VIRTIODevice *virtio_console_init(VIRTIOBusDef *bus, CharacterDevice *cs)
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 3, 4, virtio_console_recv_request);
-    s->common.device_features = (1 << 0); /* VIRTIO_CONSOLE_F_SIZE */
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_CONSOLE_F_SIZE;
     s->common.queue[0].manual_recv = TRUE;
 
     s->cs = cs;
@@ -1879,7 +1951,7 @@ VIRTIODevice *virtio_input_init(VIRTIOBusDef *bus, VirtioInputTypeEnum type)
     virtio_init(&s->common, bus,
                 18, 256, virtio_input_recv_request);
     s->common.queue[0].manual_recv = TRUE;
-    s->common.device_features = 0;
+    s->common.device_features = VIRTIO_F_VERSION_1;
     s->common.config_write = virtio_input_config_write;
     s->type = type;
     return (VIRTIODevice *)s;
@@ -2877,7 +2949,7 @@ VIRTIODevice *virtio_9p_init(VIRTIOBusDef *bus, FSDevice *fs,
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 9, 2 + len, virtio_9p_recv_request);
-    s->common.device_features = 1 << 0;
+    s->common.device_features = VIRTIO_F_VERSION_1 | (1ull << 0); // TODO unsure what feature this is?
 
     /* set the mount tag */
     cfg = s->common.config_space;
