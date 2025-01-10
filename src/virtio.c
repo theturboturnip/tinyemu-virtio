@@ -54,6 +54,25 @@ static inline ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
 
 #define DEBUG_VIRTIO
 
+/* VIRTIO Features and status bits - copied from FreeRTOS */
+/* Device status bits */
+#define VIRTIO_STAT_ACKNOWLEDGE		1
+#define VIRTIO_STAT_DRIVER		2
+#define VIRTIO_STAT_DRIVER_OK		4
+#define VIRTIO_STAT_FEATURES_OK		8
+#define VIRTIO_STAT_NEEDS_RESET		64
+#define VIRTIO_STAT_FAILED		128
+
+#define BIT(x) (1ULL << (x))
+
+/* VIRTIO 1.0 Device independent feature bits */
+#define VIRTIO_F_VERSION_1		((uint64_t) BIT(32))
+
+// Device-specific features
+#define VIRTIO_CONSOLE_F_SIZE               BIT(0)
+#define VIRTIO_NET_F_MAC                    BIT(5)
+#define VIRTIO_NET_F_STATUS                 BIT(16)
+
 /* MMIO addresses - from the Linux kernel */
 #define VIRTIO_MMIO_MAGIC_VALUE         0x000
 #define VIRTIO_MMIO_VERSION             0x004
@@ -159,13 +178,14 @@ struct VIRTIODevice {
     uint32_t int_status;
     uint32_t status;
     uint32_t device_features_sel;
+    uint32_t driver_features_sel;
     uint32_t queue_sel; /* currently selected queue */
     QueueState queue[MAX_QUEUE];
 
     /* device specific */
     uint32_t device_id;
     uint32_t vendor_id;
-    uint32_t device_features;
+    uint64_t device_features;
     VIRTIODeviceRecvFunc *device_recv;
     void (*config_write)(VIRTIODevice *s); /* called after the config
                                               is written */
@@ -173,6 +193,12 @@ struct VIRTIODevice {
     uint8_t config_space[MAX_CONFIG_SPACE_SIZE];
 
     _Atomic uint32_t pending_queue_notify;
+
+    uint64_t driver_features;
+
+    // Set to zero, once (status & FEATURES_OK) is set this will be a subset of 
+    // the bits set in `device_features`. This must include VIRTIO_F_VERSION_1.
+    uint64_t negotiated_features;
 };
 
 static uint32_t virtio_mmio_read(void *opaque, uint32_t offset1, int size_log2);
@@ -191,6 +217,7 @@ void virtio_reset(VIRTIODevice *s)
     s->status = 0;
     s->queue_sel = 0;
     s->device_features_sel = 0;
+    s->driver_features_sel = 0;
     s->int_status = 0;
     for(i = 0; i < MAX_QUEUE; i++) {
         QueueState *qs = &s->queue[i];
@@ -201,6 +228,8 @@ void virtio_reset(VIRTIODevice *s)
         qs->used_addr = 0;
         qs->last_avail_idx = 0;
     }
+    s->driver_features = 0;
+    s->negotiated_features = 0;
 }
 
 static uint8_t *virtio_pci_get_ram_ptr(VIRTIODevice *s, virtio_phys_addr_t paddr, BOOL is_rw)
@@ -662,7 +691,7 @@ static uint32_t virtio_mmio_read(void *opaque, uint32_t offset, int size_log2)
                 val = s->device_features;
                 break;
             case 1:
-                val = 1; /* version 1 */
+                val = s->device_features >> 32;
                 break;
             default:
                 val = 0;
@@ -769,6 +798,21 @@ static void virtio_mmio_write(void *opaque, uint32_t offset,
         case VIRTIO_MMIO_DEVICE_FEATURES_SEL:
             s->device_features_sel = val;
             break;
+        case VIRTIO_MMIO_DRIVER_FEATURES_SEL:
+            s->driver_features_sel = val;
+            break;
+        case VIRTIO_MMIO_DRIVER_FEATURES:
+            switch(s->driver_features_sel) {
+            case 0:
+                s->driver_features |= ((uint64_t) val) << 0;
+                break;
+            case 1:
+                s->driver_features |= ((uint64_t) val) << 32;
+                break;
+            default:
+                break;
+            }
+            break;
         case VIRTIO_MMIO_QUEUE_SEL:
             if (val < MAX_QUEUE)
                 s->queue_sel = val;
@@ -799,6 +843,27 @@ static void virtio_mmio_write(void *opaque, uint32_t offset,
             break;
 #endif
         case VIRTIO_MMIO_STATUS:
+            // If we're setting the FEATURES_OK status bit,
+            // check the driver-requested features intersect correctly with the device-exposed features.
+            // If so, set 'negotiated_features' and allow the FEATURES_OK status change to go through.
+            // Otherwise, do *not* let FEATURES_OK go through.
+            if (((s->status & VIRTIO_STAT_FEATURES_OK) == 0) && (val & VIRTIO_STAT_FEATURES_OK)) {
+                uint64_t negotiated_features = (s->driver_features & s->device_features);
+                if ((negotiated_features == s->driver_features) && (negotiated_features & VIRTIO_F_VERSION_1)) {
+                    printf("VIRTIO_MMIO_STATUS successfully negotiated features %lx\n", negotiated_features);
+                    s->negotiated_features = negotiated_features;
+                } else {
+                    printf(
+                        "VIRTIO_MMIO_STATUS attempted to set FEATURES_OK but failed negotiation.\n"
+                        "Features available: 0x%016lx\n"
+                        "Features requested: 0x%016lx\n",
+                        s->device_features,
+                        s->driver_features
+                    );
+                    val = val ^ VIRTIO_STAT_FEATURES_OK;
+                }
+            }
+
             s->status = val;
             if (val == 0) {
                 /* reset */
@@ -1185,6 +1250,8 @@ VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs)
     // TODO if VIRTIO_BLK_F_BLK_SIZE feature negotiated, fill in offset 20(?) with blk_size=512
     // This is to find the "optimal block size"
 
+    s->common.device_features = VIRTIO_F_VERSION_1;
+
     return (VIRTIODevice *)s;
 }
 
@@ -1289,8 +1356,7 @@ VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es)
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 1, 6 + 2, virtio_net_recv_request);
-    /* VIRTIO_NET_F_MAC, VIRTIO_NET_F_STATUS */
-    s->common.device_features = (1 << 5) /* | (1 << 16) */;
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_NET_F_MAC /* | VIRTIO_NET_F_STATUS */;
     s->common.queue[0].manual_recv = TRUE;
     s->es = es;
     memcpy(s->common.config_space, es->mac_addr, 6);
@@ -1401,7 +1467,7 @@ VIRTIODevice *virtio_console_init(VIRTIOBusDef *bus, CharacterDevice *cs)
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 3, 4, virtio_console_recv_request);
-    s->common.device_features = (1 << 0); /* VIRTIO_CONSOLE_F_SIZE */
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_CONSOLE_F_SIZE;
     s->common.queue[0].manual_recv = TRUE;
 
     s->cs = cs;
@@ -1732,7 +1798,7 @@ VIRTIODevice *virtio_input_init(VIRTIOBusDef *bus, VirtioInputTypeEnum type)
     virtio_init(&s->common, bus,
                 18, 256, virtio_input_recv_request);
     s->common.queue[0].manual_recv = TRUE;
-    s->common.device_features = 0;
+    s->common.device_features = VIRTIO_F_VERSION_1;
     s->common.config_write = virtio_input_config_write;
     s->type = type;
     return (VIRTIODevice *)s;
@@ -2730,7 +2796,7 @@ VIRTIODevice *virtio_9p_init(VIRTIOBusDef *bus, FSDevice *fs,
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 9, 2 + len, virtio_9p_recv_request);
-    s->common.device_features = 1 << 0;
+    s->common.device_features = VIRTIO_F_VERSION_1 | (1ull << 0); // TODO unsure what feature this is?
 
     /* set the mount tag */
     cfg = s->common.config_space;
