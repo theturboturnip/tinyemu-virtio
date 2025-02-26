@@ -1303,20 +1303,33 @@ VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs)
 {
     VIRTIOBlockDevice *s;
     uint64_t nb_sectors;
+    // config space includes {
+    //     u64 capacity = nb_sectors;
+    //     u32 max_size = 0; // not set because VIRTIO_BLK_F_SIZE_MAX not used
+    //     u32 max_segs = 64;
+    // }
+    int config_space_size = 16;
 
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
-                2, 8, virtio_block_recv_request);
+                2, config_space_size, virtio_block_recv_request);
     s->bs = bs;
 
     nb_sectors = bs->get_sector_count(bs);
     put_le32(s->common.config_space, nb_sectors);
     put_le32(s->common.config_space + 4, nb_sectors >> 32);
+    // max_size, which we don't set
+    put_le32(s->common.config_space + 8, 0);
+    // Fulfil VIRTIO_BLK_F_SEG_MAX by putting the maximum number of supported segments at byte 12.
+    // If this wasn't specified it would be assumed to be 1, which would put alignment restrictions on
+    // and force bounce buffers and eventually make the DMA stack in CheriBSD lose information about how big an allocation should be.
+    // Maybe.
+    put_le32(s->common.config_space + 12, 64);
+
 
     // TODO if VIRTIO_BLK_F_BLK_SIZE feature negotiated, fill in offset 20(?) with blk_size=512
     // This is to find the "optimal block size"
-
-    s->common.device_features = VIRTIO_F_VERSION_1;
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_F_IOCAP_QUEUE | VIRTIO_BLK_F_SEG_MAX;
 
     return (VIRTIODevice *)s;
 }
