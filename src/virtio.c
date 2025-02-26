@@ -1310,7 +1310,6 @@ static void virtio_block_req_end(VIRTIODevice *s, int ret)
             buf[write_size - 1] = VIRTIO_BLK_S_OK;
         }
         memcpy_to_queue(s, queue_idx, desc_idx, 0, buf, write_size);
-        printf("BLK memcpy finished\n");
         free(buf);
         virtio_consume_desc(s, queue_idx, desc_idx, write_size);
         break;
