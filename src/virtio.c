@@ -1255,10 +1255,34 @@ typedef struct {
     uint64_t sector_num;
 } BlockRequestHeader;
 
+// virtio1.2 block device requests we support
 #define VIRTIO_BLK_T_IN          0
 #define VIRTIO_BLK_T_OUT         1
 #define VIRTIO_BLK_T_FLUSH       4
+// Legacy - must be treated as VIRTIO_BLK_T_FLUSH
 #define VIRTIO_BLK_T_FLUSH_OUT   5
+#define VIRTIO_BLK_T_GET_ID      8
+// requires VIRTIO_BLK_F_LIFETIME feature, which we don't support
+#define VIRTIO_BLK_T_GET_LIFETIME 10
+// requires VIRTIO_BLK_F_DISCARD feature, which we don't support
+#define VIRTIO_BLK_T_DISCARD      11
+// requires VIRTIO_BLK_F_WRITE_ZEROES feature, which we don't support
+#define VIRTIO_BLK_T_WRITE_ZEROES 13
+// requires VIRTIO_BLK_F_SECURE_ERASE feature, which we don't support
+#define VIRTIO_BLK_T_SECURE_ERASE   14
+
+// feature bits
+#define VIRTIO_BLK_F_SIZE_MAX		0x0002	/* Indicates maximum segment size */
+#define VIRTIO_BLK_F_SEG_MAX		0x0004	/* Indicates maximum # of segments */
+#define VIRTIO_BLK_F_GEOMETRY		0x0010	/* Legacy geometry available  */
+#define VIRTIO_BLK_F_RO			0x0020	/* Disk is read-only */
+#define VIRTIO_BLK_F_BLK_SIZE		0x0040	/* Block size of disk is available*/
+#define VIRTIO_BLK_F_FLUSH		0x0200	/* Flush command supported */
+#define VIRTIO_BLK_F_TOPOLOGY		0x0400	/* Topology information is available */
+#define VIRTIO_BLK_F_CONFIG_WCE		0x0800	/* Writeback mode available in config */
+#define VIRTIO_BLK_F_MQ			0x1000	/* Support more than one vq */
+#define VIRTIO_BLK_F_DISCARD		0x2000	/* DISCARD is supported */
+#define VIRTIO_BLK_F_WRITE_ZEROES	0x4000	/* WRITE ZEROES is supported */
 
 #define VIRTIO_BLK_S_OK     0
 #define VIRTIO_BLK_S_IOERR  1
@@ -1298,6 +1322,21 @@ static void virtio_block_req_end(VIRTIODevice *s, int ret)
             buf1[0] = VIRTIO_BLK_S_OK;
         memcpy_to_queue(s, queue_idx, desc_idx, 0, buf1, sizeof(buf1));
         virtio_consume_desc(s, queue_idx, desc_idx, 1);
+        break;
+    case VIRTIO_BLK_T_FLUSH:
+    case VIRTIO_BLK_T_FLUSH_OUT:
+    case VIRTIO_BLK_T_GET_ID:
+        // Don't need to do anything to complete flushes or GET_IDs, just write out the result
+        write_size = s1->req.write_size;
+        buf = s1->req.buf;
+        if (ret < 0) {
+            buf[write_size - 1] = VIRTIO_BLK_S_IOERR;
+        } else {
+            buf[write_size - 1] = VIRTIO_BLK_S_OK;
+        }
+        memcpy_to_queue(s, queue_idx, desc_idx, 0, buf, write_size);
+        free(buf);
+        virtio_consume_desc(s, queue_idx, desc_idx, write_size);
         break;
     default:
         abort();
@@ -1375,6 +1414,33 @@ static int virtio_block_recv_request(VIRTIODevice *s, int queue_idx,
             printf("BLK sync write\r\n");
             virtio_block_req_end(s, ret);
         }
+        break;
+    case VIRTIO_BLK_T_FLUSH:
+    case VIRTIO_BLK_T_FLUSH_OUT:
+        printf("BLK BLK_T_FLUSH\r\n");
+        // A driver MUST set sector to 0 for a VIRTIO_BLK_T_FLUSH request.
+        assert(h.sector_num == 0);
+        // A driver SHOULD NOT include any data in a VIRTIO_BLK_T_FLUSH request.
+        // assert(read_size == sizeof(h))
+        assert(write_size >= 1); // need space to write status
+        s1->req.buf = malloc(write_size);
+        s1->req.write_size = write_size;
+
+        // Flush caches (we don't have any)
+        // At the start of the function we ensure this function is only called when there aren't any other requests-in-progress.
+        // I'm going to assume the requests are handled in-order, so a flush can always immediately complete.
+        ret = 0;
+        virtio_block_req_end(s, ret);
+        break;
+    case VIRTIO_BLK_T_GET_ID:
+        printf("BLK BLK_T_GET_ID write_size %d\r\n", write_size);
+        assert(write_size >= 21); // need space to write 20-char ID + status
+        s1->req.buf = calloc(write_size, 1);
+        s1->req.write_size = write_size;
+        // hardcoded device ID (TODO: If we ever have more than 1 block device we gotta have a better way of picking names)
+        strncpy((char*)s1->req.buf, "tinyemu-virtio-blk", 20);
+        ret = 0;
+        virtio_block_req_end(s, ret);
         break;
     default:
         printf("BLK VIRTIO_BLK_S_UNSUPP %d\r\n", h.type);
