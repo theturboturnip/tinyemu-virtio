@@ -45,8 +45,8 @@ static int console_read_data(void *opaque, uint8_t *buf, int len)
     return ret;
 }
 
-VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
-  : tun_ifname(tun_ifname) {
+VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname, bool virtio_iocap)
+  : virtio_iocap(virtio_iocap), tun_ifname(tun_ifname) {
     mem_map = phys_mem_map_init();
     irq = (IRQSignal *)mallocz(32 * sizeof(IRQSignal));
     irq_num = first_irq_num;
@@ -79,7 +79,7 @@ VirtioDevices::VirtioDevices(int first_irq_num, const char *tun_ifname)
         #endif
     }
 
-    virtio_net = virtio_net_init(virtio_bus, ethernet_device);
+    virtio_net = virtio_net_init(virtio_bus, ethernet_device, virtio_iocap);
     debugLog("ethernet device %p virtio net device %p at addr %08lx\r\r\n", ethernet_device, virtio_net, virtio_bus->addr);
 
     // set up an entropy device
@@ -104,7 +104,7 @@ void VirtioDevices::add_virtio_block_device(std::string filename)
     virtio_bus->irq = &irq[irq_num++];
     block_device = block_device_init(filename.c_str(), BF_MODE_RW);
     debugLog("block device %s (%p)\r\r\n", filename.c_str(), block_device);
-    virtio_block = virtio_block_init(virtio_bus, block_device);
+    virtio_block = virtio_block_init(virtio_bus, block_device, virtio_iocap);
     debugLog("virtio block device %p at addr %08lx\r\r\n", virtio_block, virtio_bus->addr);
 
 }

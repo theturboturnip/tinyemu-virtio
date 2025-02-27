@@ -22,12 +22,12 @@ static int debug_stray_io = 1;
 // Assign the initial value of the FPGA singleton to null.
 FPGA *fpga = NULL;
 // This function is responsible for setting up the FPGA singleton
-void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface) {
+void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface, bool virtio_iocap) {
     if (fpga != NULL) {
         fprintf(stderr, "ERROR: Called init_fpga_singleton() multiple times\r\n");
         abort();
     }
-    fpga = new FPGA(id, rom, tun_iface);
+    fpga = new FPGA(id, rom, tun_iface, virtio_iocap);
 }
 // Call dma_read on the FPGA singleton, taking the DMA lock to ensure other DMA transactions don't interfere with the selector FD.
 // Can be passed to C interfaces as a plain function pointer.
@@ -399,8 +399,8 @@ void FPGA_io::console_putchar(uint64_t wdata) {
     fflush(stdout);
 }
 
-FPGA::FPGA(int id, const Rom &rom, const char *tun_iface)
-    : io(0), rom(rom), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface), irq_state(0),
+FPGA::FPGA(int id, const Rom &rom, const char *tun_iface, bool virtio_iocap)
+    : io(0), rom(rom), virtio_devices(FIRST_VIRTIO_IRQ, tun_iface, virtio_iocap), irq_state(0),
       ctrla_seen(0), sifive_test_addr(0x50000000), htif_enabled(0), uart_enabled(0)
 {
     sem_init(&sem_misc_response, 0, 0);

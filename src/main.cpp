@@ -42,6 +42,7 @@ const struct option long_options[] = {
     { "virtio-console", optional_argument, 0, 'C' },
     { "xdma",     optional_argument, 0, 'X' },
     { "debug-log", no_argument,     0, 'L' },
+    { "no-iocap", no_argument, 0, 'I' },
     { 0,         0,                 0, 0 }
 };
 
@@ -79,10 +80,11 @@ int main(int argc, char * const *argv)
     int xdma_enabled = DEFAULT_XDMA_ENABLED;
     std::vector<std::string> block_files;
     int debug_log = 0;
+    bool virtio_iocap = true;
 
     while (1) {
         int option_index = optind ? optind : 1;
-        int c = getopt_long(argc, argv, "B:C:d:D:e:hH:LMp:U:X:",
+        int c = getopt_long(argc, argv, "B:C:d:D:e:hH:LMp:U:X:I:",
                              long_options, &option_index);
         if (c == -1)
             break;
@@ -145,9 +147,12 @@ int main(int argc, char * const *argv)
             }
 	    //fprintf(stderr, "XDMA %d\r\n", xdma_enabled);
             break;
-	case 'L':
-	    debug_log = 1;
-	    break;
+        case 'L':
+            debug_log = 1;
+            break;
+        case 'I':
+            virtio_iocap = false;
+            break;
         }
     }
 
@@ -178,7 +183,7 @@ int main(int argc, char * const *argv)
     Rom rom = { BOOTROM_BASE, BOOTROM_LIMIT, (uint64_t *)romBuffer };
 
     // Initialize the FPGA singleton before we use it
-    fpga_singleton_init(1, rom, tun_iface); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
+    fpga_singleton_init(1, rom, tun_iface, virtio_iocap); // What is/was IfcNames_FPGA_ResponseH2S? I put "1" instead; it's an ID of some sort.
     fpga->set_uart_enabled(uart_enabled);
 
     for (std::string block_file: block_files) {

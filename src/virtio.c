@@ -1451,7 +1451,7 @@ static int virtio_block_recv_request(VIRTIODevice *s, int queue_idx,
     return 0;
 }
 
-VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs)
+VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs, bool virtio_iocap)
 {
     VIRTIOBlockDevice *s;
     uint64_t nb_sectors;
@@ -1482,7 +1482,10 @@ VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs)
     // TODO if VIRTIO_BLK_F_BLK_SIZE feature negotiated, fill in offset 20(?) with blk_size=512
     // This is to find the "optimal block size"
 
-    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_F_IOCAP_QUEUE | VIRTIO_BLK_F_SEG_MAX;
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_SEG_MAX;
+    if (virtio_iocap) {
+        s->common.device_features |= VIRTIO_F_IOCAP_QUEUE;
+    }
 
     return (VIRTIODevice *)s;
 }
@@ -1581,14 +1584,18 @@ static void virtio_net_set_carrier(EthernetDevice *es, BOOL carrier_state)
     }
 }
 
-VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es)
+VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es, bool virtio_iocap)
 {
     VIRTIONetDevice *s;
     printf("virtio_net_init\r\n");
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, bus,
                 1, 6 + 2, virtio_net_recv_request);
-    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_F_IOCAP_QUEUE | VIRTIO_NET_F_MAC /* | VIRTIO_NET_F_STATUS */;
+    s->common.device_features = VIRTIO_F_VERSION_1 | VIRTIO_NET_F_MAC /* | VIRTIO_NET_F_STATUS */;
+    if (virtio_iocap) {
+        s->common.device_features |= VIRTIO_F_IOCAP_QUEUE;
+    }
+
     s->common.queue[0].manual_recv = TRUE;
     s->es = es;
     memcpy(s->common.config_space, es->mac_addr, 6);

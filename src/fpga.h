@@ -84,7 +84,7 @@ class FPGA {
 
     friend class FPGA_io;
 public:
-    FPGA(int id, const Rom &rom, const char *tun_iface);
+    FPGA(int id, const Rom &rom, const char *tun_iface, bool virtio_iocap);
     virtual ~FPGA();
 
     void wait_misc_response();
@@ -130,7 +130,7 @@ public:
 // then filled in with a valid FPGA pointer by fpga_singleton_init().
 extern FPGA *fpga;
 // Initialize the FPGA singleton with the given arguments.
-void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface);
+void fpga_singleton_init(int id, const Rom &rom, const char *tun_iface, bool virtio_iocap);
 // Call dma_read on the FPGA singleton. Can be passed to C interfaces as a plain function pointer.
 // Assumes the FPGA singleton has been initialized, and should not be called until fpga_singleton_init() has been called.
 extern "C" void fpga_singleton_dma_read(CCap2024_11* iocap, uint64_t addr, uint8_t * data, size_t num_bytes);

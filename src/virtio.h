@@ -86,7 +86,7 @@ struct BlockDevice {
     void *opaque;
 };
 
-VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs);
+VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs, bool iocap);
 
 /* network device */
 
@@ -113,7 +113,7 @@ struct EthernetDevice {
     void (*device_set_carrier)(EthernetDevice *net, BOOL carrier_state);
 };
 
-VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es);
+VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es, bool iocap);
 
 /* console device */
 
