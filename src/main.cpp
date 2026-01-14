@@ -173,7 +173,7 @@ int main(int argc, char * const *argv)
     // }
 
     // allocate a memory object for Rom
-    // Samuel note: This is also unused/uninitialized.
+    // note: This is also unused/uninitialized.
     // Rom is mapped into some of the MMIO memory space (see FPGA::emulated_mmio_respond)
     // and effectively leaks uninitialized memory to the consumer MMIO.
     size_t rom_alloc_sz = 1024*1024;
