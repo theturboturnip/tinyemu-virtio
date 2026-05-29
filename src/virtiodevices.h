@@ -12,15 +12,16 @@ extern "C" {
 class VirtioDevices {
  private:
   bool virtio_iocap;
-  BlockDevice *block_device;
   CharacterDevice *console;
   EthernetDevice *ethernet_device;
   PhysMemoryMap *mem_map;
   VIRTIOBusDef *virtio_bus;
   VIRTIODevice *virtio_console = 0;
-  VIRTIODevice *virtio_block = 0;
+  std::vector<std::pair<BlockDevice*, VIRTIODevice*>> virtio_blocks;
   VIRTIODevice *virtio_net = 0;
   VIRTIODevice *virtio_entropy = 0;
+  std::vector<VIRTIODevice*> virtio_devices;
+
   IRQSignal *irq;
   int irq_num;
   const char *tun_ifname;
@@ -45,4 +46,3 @@ class VirtioDevices {
   void join();
   void reset();
 };
-

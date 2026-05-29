@@ -97,16 +97,14 @@ VirtioDevices::~VirtioDevices() {
 
 void VirtioDevices::add_virtio_block_device(std::string filename)
 {
-    // See VirtioDevices::start() for why this doesn't work. TODO - FIX
-    assert(virtio_block == NULL && "Can't create multiple virtio_block devices");
     // set up a block device
     virtio_bus->addr += 0x1000;
     virtio_bus->irq = &irq[irq_num++];
-    block_device = block_device_init(filename.c_str(), BF_MODE_RW);
+    auto* block_device = block_device_init(filename.c_str(), BF_MODE_RW);
     debugLog("block device %s (%p)\r\r\n", filename.c_str(), block_device);
-    virtio_block = virtio_block_init(virtio_bus, block_device, virtio_iocap);
+    auto* virtio_block = virtio_block_init(virtio_bus, block_device, virtio_iocap);
     debugLog("virtio block device %p at addr %08lx\r\r\n", virtio_block, virtio_bus->addr);
-
+    virtio_blocks.emplace_back(block_device, virtio_block);
 }
 
 void VirtioDevices::add_virtio_console_device()
@@ -213,16 +211,15 @@ void *VirtioDevices::process_io_thread(void *opaque)
 void VirtioDevices::start()
 {
     printf("VirtioDevices::start\r\n");
-    // TODO this only supports one virtio_block device, but the API makes it appear that multiple are supported
-    VIRTIODevice *ps[4];
-    int n = 0;
-#define ADD_DEVICE(s) if (s) ps[n++] = s
+#define ADD_DEVICE(s) if (s) virtio_devices.push_back(s);
     ADD_DEVICE(virtio_net);
     ADD_DEVICE(virtio_entropy);
-    ADD_DEVICE(virtio_block);
+    for (auto& virtio_block_pair : virtio_blocks) {
+        ADD_DEVICE(virtio_block_pair.second);
+    }
     ADD_DEVICE(virtio_console);
 #undef ADD_DEVICE
-    virtio_start_pending_notify_thread(n, ps);
+    virtio_start_pending_notify_thread(virtio_devices.size(), virtio_devices.data());
 
     pipe(stop_pipe);
     fcntl(stop_pipe[1], F_SETFL, O_NONBLOCK);
@@ -249,7 +246,9 @@ void VirtioDevices::reset()
 #define RESET_DEVICE(s) if (s) virtio_reset(s)
     RESET_DEVICE(virtio_net);
     RESET_DEVICE(virtio_entropy);
-    RESET_DEVICE(virtio_block);
+    for (auto& virtio_block_pair : virtio_blocks) {
+        RESET_DEVICE(virtio_block_pair.second);
+    }
     RESET_DEVICE(virtio_console);
 #undef RESET_DEVICE
 }
