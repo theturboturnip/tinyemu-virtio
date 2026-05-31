@@ -30,7 +30,7 @@
 #include "pci.h"
 
 // This will be from the aarch64 or x86_64 subfolders of iocap/ depending on the current target
-#include "librust_caps_c.h"
+#include "libccap-0.7.0/libccap.h"
 
 #define VIRTIO_PAGE_SIZE 4096
 

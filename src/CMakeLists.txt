@@ -58,7 +58,6 @@ set(TINYEMU_SOURCES
   slirp/tftp.h
   slirp/udp.c
   slirp/udp.h
-  iocap/librust_caps_c_panic.cpp
   # Don't override our main!
   #build_filelist.c
   cutils.c
@@ -100,10 +99,10 @@ endif()
 # tinyemu defines this.
 # We need to tell CMake that iocap depends on tinyemu, otherwise we get link errors.
 # CMake will handle the circular dependency.
-add_library(iocap STATIC IMPORTED)
-set_property(TARGET iocap PROPERTY IMPORTED_LOCATION ${IOCAP_LIB})
-set_target_properties(iocap PROPERTIES PREFIX lib)
-target_link_libraries(iocap INTERFACE tinyemu)
+add_library(iocap
+    libccap-0.7.0/libccap.c
+    libccap-0.7.0/libccap.h
+)
 
 add_library(tinyemu ${TINYEMU_SOURCES})
 target_link_libraries(tinyemu ${SDL_LIBRARIES} ${FS_NET_LIBRARIES} iocap)

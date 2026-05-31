@@ -171,7 +171,7 @@ typedef struct {
 #define VRING_DESC_F_WRITE      2
 #define VRING_DESC_F_INDIRECT   4
 
-#include "librust_caps_c.h"
+#include "libccap-0.7.0/libccap.h"
 
 // This uses native integer types, unlike the virtio spec
 // which dictates these fields are little-endian,
