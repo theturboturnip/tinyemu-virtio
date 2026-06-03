@@ -84,7 +84,7 @@ int main(int argc, char * const *argv)
 
     while (1) {
         int option_index = optind ? optind : 1;
-        int c = getopt_long(argc, argv, "B:C:d:D:e:hH:LMp:U:X:I:",
+        int c = getopt_long(argc, argv, "B:C:d:D:e:hH:LMp:U:X:I",
                              long_options, &option_index);
         if (c == -1)
             break;
@@ -211,11 +211,11 @@ int main(int argc, char * const *argv)
             fpga->emulated_mmio_respond();
         else usleep(10000); // Wait in hope of a new request.
     }
-    
+
     int exit_code = fpga->join_io();
     if (exit_code == EXIT_CODE_RESET) {
         fpga->get_virtio_devices().reset();
     }
-    
+
     return exit_code;
 }
